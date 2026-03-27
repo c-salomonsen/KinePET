@@ -228,6 +228,12 @@ def load_dataset(input_dir: Path, fit_dir: Path) -> Dataset:
     }
     if (fit_dir / "k4.npy").exists():
         maps["k4"] = np.load(fit_dir / "k4.npy")
+    if (fit_dir / "mask_raw.npy").exists():
+        maps["mask_raw"] = np.load(fit_dir / "mask_raw.npy")
+    if (fit_dir / "mask_removed.npy").exists():
+        maps["mask_removed"] = np.load(fit_dir / "mask_removed.npy")
+    if (fit_dir / "mask_filled.npy").exists():
+        maps["mask_filled"] = np.load(fit_dir / "mask_filled.npy")
 
     fit_vb = metadata.get("fit_vb", "1") == "1"
     fixed_vb = float(metadata.get("fixed_vb", "0.05"))
@@ -400,6 +406,22 @@ def main() -> None:
     )
 
     viewer.add_labels(dataset.mask.astype(np.int32), name="mask", opacity=0.35)
+    if "mask_raw" in dataset.maps:
+        viewer.add_labels(dataset.maps["mask_raw"].astype(np.int32), name="mask_raw", opacity=0.25, visible=False)
+    if "mask_removed" in dataset.maps:
+        viewer.add_labels(
+            dataset.maps["mask_removed"].astype(np.int32),
+            name="mask_removed",
+            opacity=0.6,
+            visible=False,
+        )
+    if "mask_filled" in dataset.maps:
+        viewer.add_labels(
+            dataset.maps["mask_filled"].astype(np.int32),
+            name="mask_filled",
+            opacity=0.6,
+            visible=False,
+        )
     viewer.add_labels(dataset.maps["status"].astype(np.int32), name="status", opacity=0.5, visible=False)
     viewer.add_labels(derived["lower_bound_hits"], name="lower_bound_hits", opacity=0.5, visible=False)
     viewer.add_labels(derived["upper_bound_hits"], name="upper_bound_hits", opacity=0.5, visible=False)

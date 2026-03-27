@@ -52,7 +52,9 @@ Reversible 2TCM with fitted blood volume:
   --output-dir output_rev \
   --model rev \
   --fit-vb 1 \
-  --mask-threshold 0.05
+  --mask-threshold 0.05 \
+  --mask-keep-largest-component 1 \
+  --mask-fill-holes 1
 ```
 
 Irreversible 2TCM with fixed blood volume:
@@ -81,6 +83,9 @@ The solver writes voxel-wise maps as `.npy` arrays with shape `(depth, height, w
 - `iterations.npy`
 - `status.npy`
 - `mask.npy`
+- `mask_raw.npy`
+- `mask_removed.npy`
+- `mask_filled.npy`
 
 `status.npy` uses:
 
@@ -115,6 +120,7 @@ The main bottleneck in voxel-wise PET fitting is not a single hard optimization 
 - The solver uses trust-region Gauss-Newton with bounded parameter transforms rather than a line-by-line reimplementation of SciPy's exact reflective TRF internals.
 - MPI is not wired in yet. The code is structured so that the next step is to split the flattened voxel range across ranks and let each rank write partial outputs.
 - Only `.npy` I/O is implemented in C++. Packed `.npz` input is handled through the Python preprocessing helper.
+- Mask cleanup currently assumes the body should be a single dominant 3D connected component. That is appropriate for your current whole-subject use case, but it may need adjustment for scans with truly disconnected anatomy in the field of view.
 
 ## Recommended Next Steps
 

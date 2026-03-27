@@ -1,3 +1,4 @@
+#include "mask_utils.hpp"
 #include "npy.hpp"
 #include "solver.hpp"
 #include "tcm_model.hpp"
@@ -27,6 +28,8 @@ struct CliOptions {
   bool fit_vb = true;
   double fixed_vb = 0.05;
   double mask_threshold = 0.05;
+  bool mask_keep_largest_component = true;
+  bool mask_fill_holes = true;
   int threads = 0;
   int max_iterations = 40;
   bool use_linear_warm_start = true;
@@ -48,6 +51,8 @@ void print_usage() {
       << "  --fit-vb 0|1           Fit blood volume fraction (default: 1)\n"
       << "  --fixed-vb VALUE       Fixed blood volume when --fit-vb 0 (default: 0.05)\n"
       << "  --mask-threshold VAL   Skip voxels with max TAC below threshold (default: 0.05)\n"
+      << "  --mask-keep-largest-component 0|1  Keep only the main 3D body component (default: 1)\n"
+      << "  --mask-fill-holes 0|1  Fill enclosed holes after component cleanup (default: 1)\n"
       << "  --threads N            OpenMP threads when available\n"
       << "  --max-iter N           Maximum trust-region iterations (default: 40)\n"
       << "  --weights-file PATH    Optional .npy weights vector with length T\n"
@@ -77,6 +82,10 @@ CliOptions parse_args(int argc, char** argv) {
       options.fixed_vb = std::stod(require_value(i, argc, argv));
     } else if (arg == "--mask-threshold") {
       options.mask_threshold = std::stod(require_value(i, argc, argv));
+    } else if (arg == "--mask-keep-largest-component") {
+      options.mask_keep_largest_component = std::stoi(require_value(i, argc, argv)) != 0;
+    } else if (arg == "--mask-fill-holes") {
+      options.mask_fill_holes = std::stoi(require_value(i, argc, argv)) != 0;
     } else if (arg == "--threads") {
       options.threads = std::stoi(require_value(i, argc, argv));
     } else if (arg == "--max-iter") {
@@ -116,12 +125,22 @@ void ensure_time_minutes(std::vector<double>& time_minutes) {
   }
 }
 
-void write_manifest(const fs::path& output_dir, const CliOptions& cli, std::size_t fitted, std::size_t total) {
+void write_manifest(
+    const fs::path& output_dir,
+    const CliOptions& cli,
+    std::size_t fitted,
+    std::size_t total,
+    std::size_t raw_mask_voxels,
+    std::size_t cleaned_mask_voxels) {
   std::ofstream out(output_dir / "run.txt");
   out << "model=" << tcm::model_name(cli.model) << "\n";
   out << "fit_vb=" << (cli.fit_vb ? 1 : 0) << "\n";
   out << "fixed_vb=" << cli.fixed_vb << "\n";
   out << "mask_threshold=" << cli.mask_threshold << "\n";
+  out << "mask_keep_largest_component=" << (cli.mask_keep_largest_component ? 1 : 0) << "\n";
+  out << "mask_fill_holes=" << (cli.mask_fill_holes ? 1 : 0) << "\n";
+  out << "raw_mask_voxels=" << raw_mask_voxels << "\n";
+  out << "cleaned_mask_voxels=" << cleaned_mask_voxels << "\n";
   out << "max_iterations=" << cli.max_iterations << "\n";
   out << "use_linear_warm_start=" << (cli.use_linear_warm_start ? 1 : 0) << "\n";
   out << "fitted_voxels=" << fitted << "\n";
@@ -186,6 +205,13 @@ int main(int argc, char** argv) {
     solver_options.max_iterations = cli.max_iterations;
     solver_options.use_linear_warm_start = cli.use_linear_warm_start;
 
+    tcm::MaskOptions mask_options;
+    mask_options.threshold = cli.mask_threshold;
+    mask_options.keep_largest_component = cli.mask_keep_largest_component;
+    mask_options.fill_holes = cli.mask_fill_holes;
+    const tcm::MaskResult mask_result =
+        tcm::build_and_clean_mask(image, t_count, depth, height, width, mask_options);
+
 #ifdef TCM_HAS_OPENMP
     if (cli.threads > 0) {
       omp_set_num_threads(cli.threads);
@@ -205,7 +231,7 @@ int main(int argc, char** argv) {
     std::vector<double> rmse_map(voxel_count, std::numeric_limits<double>::quiet_NaN());
     std::vector<int32_t> iter_map(voxel_count, 0);
     std::vector<int32_t> status_map(voxel_count, static_cast<int32_t>(tcm::FitStatus::Failed));
-    std::vector<int32_t> mask_map(voxel_count, 0);
+    std::vector<int32_t> mask_map = mask_result.cleaned_mask;
 
     std::size_t fitted_voxels = 0;
 
@@ -220,18 +246,14 @@ int main(int argc, char** argv) {
 #pragma omp for schedule(dynamic, 256)
 #endif
       for (std::int64_t voxel = 0; voxel < static_cast<std::int64_t>(voxel_count); ++voxel) {
-        double max_value = 0.0;
-        for (std::size_t t = 0; t < t_count; ++t) {
-          const double value = image[t * voxel_count + static_cast<std::size_t>(voxel)];
-          tac[t] = value;
-          max_value = std::max(max_value, value);
-        }
-
-        if (max_value < cli.mask_threshold) {
+        if (mask_map[static_cast<std::size_t>(voxel)] == 0) {
           continue;
         }
 
-        mask_map[static_cast<std::size_t>(voxel)] = 1;
+        for (std::size_t t = 0; t < t_count; ++t) {
+          tac[t] = image[t * voxel_count + static_cast<std::size_t>(voxel)];
+        }
+
         const tcm::FitResult fit =
             tcm::fit_voxel(solver_options, time_minutes, aif, weights, tac);
 
@@ -269,8 +291,21 @@ int main(int argc, char** argv) {
     tcm::save_npy_f64(cli.output_dir / "rmse.npy", map_shape, rmse_map);
     tcm::save_npy_i32(cli.output_dir / "iterations.npy", map_shape, iter_map);
     tcm::save_npy_i32(cli.output_dir / "status.npy", map_shape, status_map);
+    tcm::save_npy_i32(cli.output_dir / "mask_raw.npy", map_shape, mask_result.raw_mask);
     tcm::save_npy_i32(cli.output_dir / "mask.npy", map_shape, mask_map);
-    write_manifest(cli.output_dir, cli, fitted_voxels, voxel_count);
+    tcm::save_npy_i32(cli.output_dir / "mask_removed.npy", map_shape, mask_result.removed_mask);
+    tcm::save_npy_i32(cli.output_dir / "mask_filled.npy", map_shape, mask_result.filled_mask);
+    const std::size_t raw_mask_voxels = static_cast<std::size_t>(std::count(
+        mask_result.raw_mask.begin(), mask_result.raw_mask.end(), 1));
+    const std::size_t cleaned_mask_voxels =
+        static_cast<std::size_t>(std::count(mask_map.begin(), mask_map.end(), 1));
+    write_manifest(
+        cli.output_dir,
+        cli,
+        fitted_voxels,
+        voxel_count,
+        raw_mask_voxels,
+        cleaned_mask_voxels);
 
     std::cout << "Finished " << fitted_voxels << " fitted voxels out of " << voxel_count << "\n";
     return 0;

@@ -10,6 +10,7 @@ option(TCM_ENABLE_OPENMP "Enable OpenMP voxel parallelism when available" ON)
 
 add_executable(
   tcm_fit
+  src/mask_utils.cpp
   src/main.cpp
   src/lls.cpp
   src/npy.cpp
