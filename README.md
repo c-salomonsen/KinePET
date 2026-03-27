@@ -14,6 +14,7 @@ The implementation is built around three decisions:
 - Reversible 2TCM (`K1`, `k2`, `k3`, `k4`, optional `vB`)
 - Bounded optimization through parameter transforms into a trust-region Gauss-Newton loop
 - Linear warm starts derived from the same basis-transform idea already present in your adjacent Torch code
+- Selective masked 3D median post-filtering for voxels that stall with status `2` or hit status `4`
 - Minimal `.npy` input/output for easy interop with NumPy
 - Synthetic smoke test covering both model variants
 
@@ -54,7 +55,10 @@ Reversible 2TCM with fitted blood volume:
   --fit-vb 1 \
   --mask-threshold 0.05 \
   --mask-keep-largest-component 1 \
-  --mask-fill-holes 1
+  --mask-fill-holes 1 \
+  --postfilter-status-median 1 \
+  --postfilter-radius 1 \
+  --postfilter-min-reliable-neighbors 3
 ```
 
 Irreversible 2TCM with fixed blood volume:
@@ -79,6 +83,12 @@ The solver writes voxel-wise maps as `.npy` arrays with shape `(depth, height, w
 - `k4.npy` for the reversible model
 - `vB.npy`
 - `Ki.npy`
+- `K1_rawfit.npy`
+- `k2_rawfit.npy`
+- `k3_rawfit.npy`
+- `k4_rawfit.npy` for the reversible model
+- `vB_rawfit.npy`
+- `Ki_rawfit.npy`
 - `rmse.npy`
 - `iterations.npy`
 - `status.npy`
@@ -86,14 +96,37 @@ The solver writes voxel-wise maps as `.npy` arrays with shape `(depth, height, w
 - `mask_raw.npy`
 - `mask_removed.npy`
 - `mask_filled.npy`
+- `postfilter_target.npy`
+- `postfilter_applied.npy`
+- `postfilter_unresolved.npy`
+
+When post-filtering is enabled, the main parameter outputs (`K1.npy`, `k2.npy`, `k3.npy`, `k4.npy`, `vB.npy`, `Ki.npy`) are the post-filtered maps. The corresponding `*_rawfit.npy` files preserve the direct voxel-wise nonlinear fit before any spatial stabilization.
 
 `status.npy` uses:
 
 - `1`: gradient convergence
-- `2`: step convergence
+- `2`: step convergence, meaning the optimizer proposed an update smaller than `step_tolerance`; this often means it stalled on a flat region or near an active bound rather than reaching the cleanest optimum
 - `3`: cost convergence
 - `4`: hit iteration limit
 - `5`: invalid input
+
+## Selective Median Post-Filter
+
+The post-filter is intentionally narrow. It is designed to suppress isolated unstable voxels without smoothing the whole parametric volume.
+
+- Only voxels inside the cleaned `mask.npy` are considered.
+- Only voxels with `status` `2` or `4` are targeted.
+- Only neighbors with `status` `1` or `3` are allowed to donate replacement values.
+- The default window is radius `1`, which corresponds to a masked `3x3x3` neighborhood.
+- A target voxel is replaced only if at least `3` reliable donor voxels are available in that neighborhood.
+- `K1`, `k2`, `k3`, `k4` when present, and `vB` are median-filtered independently at the targeted voxels.
+- `Ki` is not median-filtered directly. It is recomputed from the post-filtered `K1`, `k2`, and `k3`.
+
+The three post-filter mask outputs mean:
+
+- `postfilter_target.npy`: voxels marked for possible replacement because they had status `2` or `4`
+- `postfilter_applied.npy`: targeted voxels that had enough reliable neighbors and were actually replaced
+- `postfilter_unresolved.npy`: targeted voxels that did not have enough reliable neighbors and were left unchanged
 
 ## Validation
 
@@ -121,6 +154,7 @@ The main bottleneck in voxel-wise PET fitting is not a single hard optimization 
 - MPI is not wired in yet. The code is structured so that the next step is to split the flattened voxel range across ranks and let each rank write partial outputs.
 - Only `.npy` I/O is implemented in C++. Packed `.npz` input is handled through the Python preprocessing helper.
 - Mask cleanup currently assumes the body should be a single dominant 3D connected component. That is appropriate for your current whole-subject use case, but it may need adjustment for scans with truly disconnected anatomy in the field of view.
+- The post-filter is a visualization and stabilization aid, not a substitute for better model identifiability. Large clusters of status `2` or `4` voxels should still be treated as a fitting problem first.
 
 ## Recommended Next Steps
 

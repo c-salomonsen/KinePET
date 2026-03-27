@@ -69,14 +69,14 @@ def robust_limits(array: np.ndarray, mask: np.ndarray | None = None) -> tuple[fl
 
 def model_bounds(model_name: str, fit_vb: bool, fixed_vb: float) -> dict[str, tuple[float, float]]:
     bounds = {
-        "K1": (0.0, 2.0),
-        "k2": (0.0, 3.0),
+        "K1": (0.0, 5.0),
+        "k2": (0.0, 5.0),
         "k3": (0.0, 3.0),
     }
     if model_name == "2tcm-reversible":
         bounds["k4"] = (0.0, 3.0)
     if fit_vb:
-        bounds["vB"] = (0.0, 0.2)
+        bounds["vB"] = (0.0, 1.0)
     else:
         bounds["vB"] = (fixed_vb, fixed_vb)
     return bounds
@@ -234,6 +234,12 @@ def load_dataset(input_dir: Path, fit_dir: Path) -> Dataset:
         maps["mask_removed"] = np.load(fit_dir / "mask_removed.npy")
     if (fit_dir / "mask_filled.npy").exists():
         maps["mask_filled"] = np.load(fit_dir / "mask_filled.npy")
+    if (fit_dir / "postfilter_target.npy").exists():
+        maps["postfilter_target"] = np.load(fit_dir / "postfilter_target.npy")
+    if (fit_dir / "postfilter_applied.npy").exists():
+        maps["postfilter_applied"] = np.load(fit_dir / "postfilter_applied.npy")
+    if (fit_dir / "postfilter_unresolved.npy").exists():
+        maps["postfilter_unresolved"] = np.load(fit_dir / "postfilter_unresolved.npy")
 
     fit_vb = metadata.get("fit_vb", "1") == "1"
     fixed_vb = float(metadata.get("fixed_vb", "0.05"))
@@ -420,6 +426,27 @@ def main() -> None:
             dataset.maps["mask_filled"].astype(np.int32),
             name="mask_filled",
             opacity=0.6,
+            visible=False,
+        )
+    if "postfilter_target" in dataset.maps:
+        viewer.add_labels(
+            dataset.maps["postfilter_target"].astype(np.int32),
+            name="postfilter_target",
+            opacity=0.45,
+            visible=False,
+        )
+    if "postfilter_applied" in dataset.maps:
+        viewer.add_labels(
+            dataset.maps["postfilter_applied"].astype(np.int32),
+            name="postfilter_applied",
+            opacity=0.55,
+            visible=False,
+        )
+    if "postfilter_unresolved" in dataset.maps:
+        viewer.add_labels(
+            dataset.maps["postfilter_unresolved"].astype(np.int32),
+            name="postfilter_unresolved",
+            opacity=0.55,
             visible=False,
         )
     viewer.add_labels(dataset.maps["status"].astype(np.int32), name="status", opacity=0.5, visible=False)

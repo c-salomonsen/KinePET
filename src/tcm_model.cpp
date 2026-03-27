@@ -159,14 +159,14 @@ std::string parameter_name(ModelKind model, bool fit_vb, int index) {
 SolverBounds default_bounds(ModelKind model, bool fit_vb, double fixed_vb) {
   SolverBounds bounds{};
   bounds.lower = {0.0, 0.0, 0.0, 0.0, 0.0};
-  bounds.upper = {5.0, 5.0, 3.0, 3.0, 0.95};
+  bounds.upper = {5.0, 5.0, 3.0, 1.0, 0.95};
 
   if (model == ModelKind::Irreversible2TCM) {
     if (fit_vb) {
       bounds.upper[3] = 1.0;
     }
   } else {
-    bounds.upper[3] = 3.0;
+    bounds.upper[3] = 1.0;
     if (fit_vb) {
       bounds.upper[4] = 1.0;
     }

@@ -1,8 +1,10 @@
 #include "mask_utils.hpp"
 #include "npy.hpp"
+#include "post_filter.hpp"
 #include "solver.hpp"
 #include "tcm_model.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -30,6 +32,9 @@ struct CliOptions {
   double mask_threshold = 0.05;
   bool mask_keep_largest_component = true;
   bool mask_fill_holes = true;
+  bool postfilter_status_median = true;
+  int postfilter_radius = 1;
+  int postfilter_min_reliable_neighbors = 3;
   int threads = 0;
   int max_iterations = 40;
   bool use_linear_warm_start = true;
@@ -53,6 +58,9 @@ void print_usage() {
       << "  --mask-threshold VAL   Skip voxels with max TAC below threshold (default: 0.05)\n"
       << "  --mask-keep-largest-component 0|1  Keep only the main 3D body component (default: 1)\n"
       << "  --mask-fill-holes 0|1  Fill enclosed holes after component cleanup (default: 1)\n"
+      << "  --postfilter-status-median 0|1  Apply selective 3D median filtering to status 2/4 voxels (default: 1)\n"
+      << "  --postfilter-radius N  Radius for the masked 3D median window (default: 1, meaning 3x3x3)\n"
+      << "  --postfilter-min-reliable-neighbors N  Minimum status 1/3 donors needed to replace a voxel (default: 3)\n"
       << "  --threads N            OpenMP threads when available\n"
       << "  --max-iter N           Maximum trust-region iterations (default: 40)\n"
       << "  --weights-file PATH    Optional .npy weights vector with length T\n"
@@ -86,6 +94,12 @@ CliOptions parse_args(int argc, char** argv) {
       options.mask_keep_largest_component = std::stoi(require_value(i, argc, argv)) != 0;
     } else if (arg == "--mask-fill-holes") {
       options.mask_fill_holes = std::stoi(require_value(i, argc, argv)) != 0;
+    } else if (arg == "--postfilter-status-median") {
+      options.postfilter_status_median = std::stoi(require_value(i, argc, argv)) != 0;
+    } else if (arg == "--postfilter-radius") {
+      options.postfilter_radius = std::stoi(require_value(i, argc, argv));
+    } else if (arg == "--postfilter-min-reliable-neighbors") {
+      options.postfilter_min_reliable_neighbors = std::stoi(require_value(i, argc, argv));
     } else if (arg == "--threads") {
       options.threads = std::stoi(require_value(i, argc, argv));
     } else if (arg == "--max-iter") {
@@ -131,7 +145,8 @@ void write_manifest(
     std::size_t fitted,
     std::size_t total,
     std::size_t raw_mask_voxels,
-    std::size_t cleaned_mask_voxels) {
+    std::size_t cleaned_mask_voxels,
+    const tcm::PostFilterResult& postfilter) {
   std::ofstream out(output_dir / "run.txt");
   out << "model=" << tcm::model_name(cli.model) << "\n";
   out << "fit_vb=" << (cli.fit_vb ? 1 : 0) << "\n";
@@ -141,6 +156,15 @@ void write_manifest(
   out << "mask_fill_holes=" << (cli.mask_fill_holes ? 1 : 0) << "\n";
   out << "raw_mask_voxels=" << raw_mask_voxels << "\n";
   out << "cleaned_mask_voxels=" << cleaned_mask_voxels << "\n";
+  out << "postfilter_status_median=" << (cli.postfilter_status_median ? 1 : 0) << "\n";
+  out << "postfilter_radius=" << cli.postfilter_radius << "\n";
+  out << "postfilter_min_reliable_neighbors=" << cli.postfilter_min_reliable_neighbors << "\n";
+  out << "postfilter_target_statuses=2,4\n";
+  out << "postfilter_donor_statuses=1,3\n";
+  out << "postfilter_targeted_voxels=" << postfilter.targeted_voxels << "\n";
+  out << "postfilter_applied_voxels=" << postfilter.applied_voxels << "\n";
+  out << "postfilter_unresolved_voxels=" << (postfilter.targeted_voxels - postfilter.applied_voxels)
+      << "\n";
   out << "max_iterations=" << cli.max_iterations << "\n";
   out << "use_linear_warm_start=" << (cli.use_linear_warm_start ? 1 : 0) << "\n";
   out << "fitted_voxels=" << fitted << "\n";
@@ -152,6 +176,12 @@ void write_manifest(
 int main(int argc, char** argv) {
   try {
     const CliOptions cli = parse_args(argc, argv);
+    if (cli.postfilter_radius < 1) {
+      throw std::runtime_error("--postfilter-radius must be at least 1");
+    }
+    if (cli.postfilter_min_reliable_neighbors < 1) {
+      throw std::runtime_error("--postfilter-min-reliable-neighbors must be at least 1");
+    }
     fs::create_directories(cli.output_dir);
 
     std::vector<std::size_t> image_shape;
@@ -279,15 +309,47 @@ int main(int argc, char** argv) {
       fitted_voxels += local_fitted;
     }
 
+    const std::vector<double> k1_rawfit = k1_map;
+    const std::vector<double> k2_rawfit = k2_map;
+    const std::vector<double> k3_rawfit = k3_map;
+    const std::vector<double> k4_rawfit = k4_map;
+    const std::vector<double> vb_rawfit = vb_map;
+    const std::vector<double> ki_rawfit = ki_map;
+
+    tcm::PostFilterOptions postfilter_options;
+    postfilter_options.enable_status_median = cli.postfilter_status_median;
+    postfilter_options.radius = cli.postfilter_radius;
+    postfilter_options.min_reliable_neighbors = cli.postfilter_min_reliable_neighbors;
+    const tcm::PostFilterResult postfilter = tcm::apply_selective_status_median_filter(
+        cli.model,
+        postfilter_options,
+        mask_map,
+        status_map,
+        depth,
+        height,
+        width,
+        k1_map,
+        k2_map,
+        k3_map,
+        cli.model == tcm::ModelKind::Reversible2TCM ? &k4_map : nullptr,
+        vb_map,
+        ki_map);
+
     const std::vector<std::size_t> map_shape = {depth, height, width};
     tcm::save_npy_f64(cli.output_dir / "K1.npy", map_shape, k1_map);
     tcm::save_npy_f64(cli.output_dir / "k2.npy", map_shape, k2_map);
     tcm::save_npy_f64(cli.output_dir / "k3.npy", map_shape, k3_map);
+    tcm::save_npy_f64(cli.output_dir / "K1_rawfit.npy", map_shape, k1_rawfit);
+    tcm::save_npy_f64(cli.output_dir / "k2_rawfit.npy", map_shape, k2_rawfit);
+    tcm::save_npy_f64(cli.output_dir / "k3_rawfit.npy", map_shape, k3_rawfit);
     if (cli.model == tcm::ModelKind::Reversible2TCM) {
       tcm::save_npy_f64(cli.output_dir / "k4.npy", map_shape, k4_map);
+      tcm::save_npy_f64(cli.output_dir / "k4_rawfit.npy", map_shape, k4_rawfit);
     }
     tcm::save_npy_f64(cli.output_dir / "vB.npy", map_shape, vb_map);
     tcm::save_npy_f64(cli.output_dir / "Ki.npy", map_shape, ki_map);
+    tcm::save_npy_f64(cli.output_dir / "vB_rawfit.npy", map_shape, vb_rawfit);
+    tcm::save_npy_f64(cli.output_dir / "Ki_rawfit.npy", map_shape, ki_rawfit);
     tcm::save_npy_f64(cli.output_dir / "rmse.npy", map_shape, rmse_map);
     tcm::save_npy_i32(cli.output_dir / "iterations.npy", map_shape, iter_map);
     tcm::save_npy_i32(cli.output_dir / "status.npy", map_shape, status_map);
@@ -295,6 +357,10 @@ int main(int argc, char** argv) {
     tcm::save_npy_i32(cli.output_dir / "mask.npy", map_shape, mask_map);
     tcm::save_npy_i32(cli.output_dir / "mask_removed.npy", map_shape, mask_result.removed_mask);
     tcm::save_npy_i32(cli.output_dir / "mask_filled.npy", map_shape, mask_result.filled_mask);
+    tcm::save_npy_i32(cli.output_dir / "postfilter_target.npy", map_shape, postfilter.target_mask);
+    tcm::save_npy_i32(cli.output_dir / "postfilter_applied.npy", map_shape, postfilter.applied_mask);
+    tcm::save_npy_i32(
+        cli.output_dir / "postfilter_unresolved.npy", map_shape, postfilter.unresolved_mask);
     const std::size_t raw_mask_voxels = static_cast<std::size_t>(std::count(
         mask_result.raw_mask.begin(), mask_result.raw_mask.end(), 1));
     const std::size_t cleaned_mask_voxels =
@@ -305,7 +371,8 @@ int main(int argc, char** argv) {
         fitted_voxels,
         voxel_count,
         raw_mask_voxels,
-        cleaned_mask_voxels);
+        cleaned_mask_voxels,
+        postfilter);
 
     std::cout << "Finished " << fitted_voxels << " fitted voxels out of " << voxel_count << "\n";
     return 0;
