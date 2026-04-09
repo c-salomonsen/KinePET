@@ -1,6 +1,7 @@
 #include "mask_utils.hpp"
 #include "npy.hpp"
 #include "post_filter.hpp"
+#include "preprocess.hpp"
 #include "solver.hpp"
 #include "tcm_model.hpp"
 
@@ -29,9 +30,19 @@ struct CliOptions {
   tcm::ModelKind model = tcm::ModelKind::Reversible2TCM;
   bool fit_vb = true;
   double fixed_vb = 0.05;
+  bool fit_delay = false;
+  double fixed_delay = 0.0;
+  bool fit_dispersion = false;
+  double fixed_dispersion = 0.0;
   double mask_threshold = 0.05;
   bool mask_keep_largest_component = true;
   bool mask_fill_holes = true;
+  bool spatial_gaussian_enable = false;
+  int spatial_gaussian_radius = 1;
+  double spatial_gaussian_sigma = 0.75;
+  tcm::TemporalFilterKind temporal_filter = tcm::TemporalFilterKind::None;
+  int temporal_filter_radius = 1;
+  double temporal_gaussian_sigma = 1.0;
   bool postfilter_status_median = true;
   int postfilter_radius = 1;
   int postfilter_min_reliable_neighbors = 3;
@@ -55,9 +66,19 @@ void print_usage() {
       << "Options:\n"
       << "  --fit-vb 0|1           Fit blood volume fraction (default: 1)\n"
       << "  --fixed-vb VALUE       Fixed blood volume when --fit-vb 0 (default: 0.05)\n"
+      << "  --fit-delay 0|1        Fit AIF delay parameter Delta (default: 0)\n"
+      << "  --fixed-delay VALUE    Fixed AIF delay in minutes when --fit-delay 0 (default: 0.0)\n"
+      << "  --fit-dispersion 0|1   Fit AIF dispersion parameter tau (default: 0)\n"
+      << "  --fixed-dispersion VALUE  Fixed AIF dispersion in minutes when --fit-dispersion 0 (default: 0.0)\n"
       << "  --mask-threshold VAL   Skip voxels with max TAC below threshold (default: 0.05)\n"
       << "  --mask-keep-largest-component 0|1  Keep only the main 3D body component (default: 1)\n"
       << "  --mask-fill-holes 0|1  Fill enclosed holes after component cleanup (default: 1)\n"
+      << "  --spatial-gaussian-prefilter 0|1  Apply 3D Gaussian smoothing to each frame before fitting (default: 0)\n"
+      << "  --spatial-gaussian-radius N  Radius of the spatial Gaussian kernel (default: 1)\n"
+      << "  --spatial-gaussian-sigma VALUE  Sigma of the spatial Gaussian kernel in voxels (default: 0.75)\n"
+      << "  --temporal-filter none|median|gaussian  Optional 1D temporal TAC filter before fitting (default: none)\n"
+      << "  --temporal-filter-radius N  Radius of the temporal filter window (default: 1)\n"
+      << "  --temporal-gaussian-sigma VALUE  Sigma for temporal Gaussian filtering (default: 1.0)\n"
       << "  --postfilter-status-median 0|1  Apply selective 3D median filtering to status 2/4 voxels (default: 1)\n"
       << "  --postfilter-radius N  Radius for the masked 3D median window (default: 1, meaning 3x3x3)\n"
       << "  --postfilter-min-reliable-neighbors N  Minimum status 1/3 donors needed to replace a voxel (default: 3)\n"
@@ -88,12 +109,41 @@ CliOptions parse_args(int argc, char** argv) {
       options.fit_vb = std::stoi(require_value(i, argc, argv)) != 0;
     } else if (arg == "--fixed-vb") {
       options.fixed_vb = std::stod(require_value(i, argc, argv));
+    } else if (arg == "--fit-delay") {
+      options.fit_delay = std::stoi(require_value(i, argc, argv)) != 0;
+    } else if (arg == "--fixed-delay") {
+      options.fixed_delay = std::stod(require_value(i, argc, argv));
+    } else if (arg == "--fit-dispersion") {
+      options.fit_dispersion = std::stoi(require_value(i, argc, argv)) != 0;
+    } else if (arg == "--fixed-dispersion") {
+      options.fixed_dispersion = std::stod(require_value(i, argc, argv));
     } else if (arg == "--mask-threshold") {
       options.mask_threshold = std::stod(require_value(i, argc, argv));
     } else if (arg == "--mask-keep-largest-component") {
       options.mask_keep_largest_component = std::stoi(require_value(i, argc, argv)) != 0;
     } else if (arg == "--mask-fill-holes") {
       options.mask_fill_holes = std::stoi(require_value(i, argc, argv)) != 0;
+    } else if (arg == "--spatial-gaussian-prefilter") {
+      options.spatial_gaussian_enable = std::stoi(require_value(i, argc, argv)) != 0;
+    } else if (arg == "--spatial-gaussian-radius") {
+      options.spatial_gaussian_radius = std::stoi(require_value(i, argc, argv));
+    } else if (arg == "--spatial-gaussian-sigma") {
+      options.spatial_gaussian_sigma = std::stod(require_value(i, argc, argv));
+    } else if (arg == "--temporal-filter") {
+      const std::string value = require_value(i, argc, argv);
+      if (value == "none") {
+        options.temporal_filter = tcm::TemporalFilterKind::None;
+      } else if (value == "median") {
+        options.temporal_filter = tcm::TemporalFilterKind::Median;
+      } else if (value == "gaussian") {
+        options.temporal_filter = tcm::TemporalFilterKind::Gaussian;
+      } else {
+        throw std::runtime_error("Temporal filter must be 'none', 'median', or 'gaussian'");
+      }
+    } else if (arg == "--temporal-filter-radius") {
+      options.temporal_filter_radius = std::stoi(require_value(i, argc, argv));
+    } else if (arg == "--temporal-gaussian-sigma") {
+      options.temporal_gaussian_sigma = std::stod(require_value(i, argc, argv));
     } else if (arg == "--postfilter-status-median") {
       options.postfilter_status_median = std::stoi(require_value(i, argc, argv)) != 0;
     } else if (arg == "--postfilter-radius") {
@@ -151,9 +201,19 @@ void write_manifest(
   out << "model=" << tcm::model_name(cli.model) << "\n";
   out << "fit_vb=" << (cli.fit_vb ? 1 : 0) << "\n";
   out << "fixed_vb=" << cli.fixed_vb << "\n";
+  out << "fit_delay=" << (cli.fit_delay ? 1 : 0) << "\n";
+  out << "fixed_delay=" << cli.fixed_delay << "\n";
+  out << "fit_dispersion=" << (cli.fit_dispersion ? 1 : 0) << "\n";
+  out << "fixed_dispersion=" << cli.fixed_dispersion << "\n";
   out << "mask_threshold=" << cli.mask_threshold << "\n";
   out << "mask_keep_largest_component=" << (cli.mask_keep_largest_component ? 1 : 0) << "\n";
   out << "mask_fill_holes=" << (cli.mask_fill_holes ? 1 : 0) << "\n";
+  out << "spatial_gaussian_prefilter=" << (cli.spatial_gaussian_enable ? 1 : 0) << "\n";
+  out << "spatial_gaussian_radius=" << cli.spatial_gaussian_radius << "\n";
+  out << "spatial_gaussian_sigma=" << cli.spatial_gaussian_sigma << "\n";
+  out << "temporal_filter=" << tcm::temporal_filter_name(cli.temporal_filter) << "\n";
+  out << "temporal_filter_radius=" << cli.temporal_filter_radius << "\n";
+  out << "temporal_gaussian_sigma=" << cli.temporal_gaussian_sigma << "\n";
   out << "raw_mask_voxels=" << raw_mask_voxels << "\n";
   out << "cleaned_mask_voxels=" << cleaned_mask_voxels << "\n";
   out << "postfilter_status_median=" << (cli.postfilter_status_median ? 1 : 0) << "\n";
@@ -181,6 +241,21 @@ int main(int argc, char** argv) {
     }
     if (cli.postfilter_min_reliable_neighbors < 1) {
       throw std::runtime_error("--postfilter-min-reliable-neighbors must be at least 1");
+    }
+    if (cli.spatial_gaussian_radius < 1) {
+      throw std::runtime_error("--spatial-gaussian-radius must be at least 1");
+    }
+    if (cli.spatial_gaussian_sigma <= 0.0) {
+      throw std::runtime_error("--spatial-gaussian-sigma must be positive");
+    }
+    if (cli.temporal_filter_radius < 1) {
+      throw std::runtime_error("--temporal-filter-radius must be at least 1");
+    }
+    if (cli.temporal_gaussian_sigma <= 0.0) {
+      throw std::runtime_error("--temporal-gaussian-sigma must be positive");
+    }
+    if (cli.fixed_dispersion < 0.0) {
+      throw std::runtime_error("--fixed-dispersion must be non-negative");
     }
     fs::create_directories(cli.output_dir);
 
@@ -231,7 +306,18 @@ int main(int argc, char** argv) {
     solver_options.model = cli.model;
     solver_options.fit_vb = cli.fit_vb;
     solver_options.fixed_vb = cli.fixed_vb;
-    solver_options.bounds = tcm::default_bounds(cli.model, cli.fit_vb, cli.fixed_vb);
+    solver_options.fit_delay = cli.fit_delay;
+    solver_options.fixed_delay = cli.fixed_delay;
+    solver_options.fit_dispersion = cli.fit_dispersion;
+    solver_options.fixed_dispersion = cli.fixed_dispersion;
+    solver_options.bounds = tcm::default_bounds(
+        cli.model,
+        cli.fit_vb,
+        cli.fixed_vb,
+        cli.fit_delay,
+        cli.fixed_delay,
+        cli.fit_dispersion,
+        cli.fixed_dispersion);
     solver_options.max_iterations = cli.max_iterations;
     solver_options.use_linear_warm_start = cli.use_linear_warm_start;
 
@@ -241,6 +327,21 @@ int main(int argc, char** argv) {
     mask_options.fill_holes = cli.mask_fill_holes;
     const tcm::MaskResult mask_result =
         tcm::build_and_clean_mask(image, t_count, depth, height, width, mask_options);
+
+    tcm::PreprocessingOptions preprocessing_options;
+    preprocessing_options.spatial_gaussian_enable = cli.spatial_gaussian_enable;
+    preprocessing_options.spatial_gaussian_radius = cli.spatial_gaussian_radius;
+    preprocessing_options.spatial_gaussian_sigma = cli.spatial_gaussian_sigma;
+    preprocessing_options.temporal_filter = cli.temporal_filter;
+    preprocessing_options.temporal_filter_radius = cli.temporal_filter_radius;
+    preprocessing_options.temporal_gaussian_sigma = cli.temporal_gaussian_sigma;
+    const std::vector<double> fit_image = tcm::apply_prefit_preprocessing(
+        image,
+        t_count,
+        depth,
+        height,
+        width,
+        preprocessing_options);
 
 #ifdef TCM_HAS_OPENMP
     if (cli.threads > 0) {
@@ -257,6 +358,8 @@ int main(int argc, char** argv) {
         voxel_count,
         cli.model == tcm::ModelKind::Reversible2TCM ? std::numeric_limits<double>::quiet_NaN() : 0.0);
     std::vector<double> vb_map(voxel_count, std::numeric_limits<double>::quiet_NaN());
+    std::vector<double> delay_map(voxel_count, std::numeric_limits<double>::quiet_NaN());
+    std::vector<double> dispersion_map(voxel_count, std::numeric_limits<double>::quiet_NaN());
     std::vector<double> ki_map(voxel_count, std::numeric_limits<double>::quiet_NaN());
     std::vector<double> rmse_map(voxel_count, std::numeric_limits<double>::quiet_NaN());
     std::vector<int32_t> iter_map(voxel_count, 0);
@@ -270,6 +373,8 @@ int main(int argc, char** argv) {
 #endif
     {
       std::vector<double> tac(t_count, 0.0);
+      std::vector<double> raw_tac(t_count, 0.0);
+      std::vector<double> predicted_raw;
       std::size_t local_fitted = 0;
 
 #ifdef TCM_HAS_OPENMP
@@ -281,13 +386,26 @@ int main(int argc, char** argv) {
         }
 
         for (std::size_t t = 0; t < t_count; ++t) {
-          tac[t] = image[t * voxel_count + static_cast<std::size_t>(voxel)];
+          tac[t] = fit_image[t * voxel_count + static_cast<std::size_t>(voxel)];
+          raw_tac[t] = image[t * voxel_count + static_cast<std::size_t>(voxel)];
         }
 
         const tcm::FitResult fit =
             tcm::fit_voxel(solver_options, time_minutes, aif, weights, tac);
 
         if (fit.status != tcm::FitStatus::InvalidInput) {
+          double rmse_against_raw = fit.rmse;
+          if ((cli.spatial_gaussian_enable ||
+               cli.temporal_filter != tcm::TemporalFilterKind::None) &&
+              tcm::evaluate_model(cli.model, fit.params, time_minutes, aif, predicted_raw) &&
+              predicted_raw.size() == raw_tac.size()) {
+            double sq = 0.0;
+            for (std::size_t i = 0; i < raw_tac.size(); ++i) {
+              const double diff = predicted_raw[i] - raw_tac[i];
+              sq += diff * diff;
+            }
+            rmse_against_raw = std::sqrt(sq / static_cast<double>(raw_tac.size()));
+          }
           k1_map[static_cast<std::size_t>(voxel)] = fit.params.K1;
           k2_map[static_cast<std::size_t>(voxel)] = fit.params.k2;
           k3_map[static_cast<std::size_t>(voxel)] = fit.params.k3;
@@ -295,8 +413,10 @@ int main(int argc, char** argv) {
             k4_map[static_cast<std::size_t>(voxel)] = fit.params.k4;
           }
           vb_map[static_cast<std::size_t>(voxel)] = fit.params.vB;
+          delay_map[static_cast<std::size_t>(voxel)] = fit.params.delay;
+          dispersion_map[static_cast<std::size_t>(voxel)] = fit.params.dispersion;
           ki_map[static_cast<std::size_t>(voxel)] = fit.ki;
-          rmse_map[static_cast<std::size_t>(voxel)] = fit.rmse;
+          rmse_map[static_cast<std::size_t>(voxel)] = rmse_against_raw;
           iter_map[static_cast<std::size_t>(voxel)] = fit.iterations;
           status_map[static_cast<std::size_t>(voxel)] = static_cast<int32_t>(fit.status);
           ++local_fitted;
@@ -314,6 +434,8 @@ int main(int argc, char** argv) {
     const std::vector<double> k3_rawfit = k3_map;
     const std::vector<double> k4_rawfit = k4_map;
     const std::vector<double> vb_rawfit = vb_map;
+    const std::vector<double> delay_rawfit = delay_map;
+    const std::vector<double> dispersion_rawfit = dispersion_map;
     const std::vector<double> ki_rawfit = ki_map;
 
     tcm::PostFilterOptions postfilter_options;
@@ -333,6 +455,8 @@ int main(int argc, char** argv) {
         k3_map,
         cli.model == tcm::ModelKind::Reversible2TCM ? &k4_map : nullptr,
         vb_map,
+        (cli.fit_delay || std::abs(cli.fixed_delay) > 1e-12) ? &delay_map : nullptr,
+        (cli.fit_dispersion || std::abs(cli.fixed_dispersion) > 1e-12) ? &dispersion_map : nullptr,
         ki_map);
 
     const std::vector<std::size_t> map_shape = {depth, height, width};
@@ -350,6 +474,14 @@ int main(int argc, char** argv) {
     tcm::save_npy_f64(cli.output_dir / "Ki.npy", map_shape, ki_map);
     tcm::save_npy_f64(cli.output_dir / "vB_rawfit.npy", map_shape, vb_rawfit);
     tcm::save_npy_f64(cli.output_dir / "Ki_rawfit.npy", map_shape, ki_rawfit);
+    if (cli.fit_delay || std::abs(cli.fixed_delay) > 1e-12) {
+      tcm::save_npy_f64(cli.output_dir / "delay.npy", map_shape, delay_map);
+      tcm::save_npy_f64(cli.output_dir / "delay_rawfit.npy", map_shape, delay_rawfit);
+    }
+    if (cli.fit_dispersion || std::abs(cli.fixed_dispersion) > 1e-12) {
+      tcm::save_npy_f64(cli.output_dir / "dispersion.npy", map_shape, dispersion_map);
+      tcm::save_npy_f64(cli.output_dir / "dispersion_rawfit.npy", map_shape, dispersion_rawfit);
+    }
     tcm::save_npy_f64(cli.output_dir / "rmse.npy", map_shape, rmse_map);
     tcm::save_npy_i32(cli.output_dir / "iterations.npy", map_shape, iter_map);
     tcm::save_npy_i32(cli.output_dir / "status.npy", map_shape, status_map);

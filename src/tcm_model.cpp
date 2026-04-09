@@ -10,8 +10,100 @@ namespace {
 
 constexpr double kTinyRate = 1e-12;
 
+int base_parameter_count(ModelKind model, bool fit_vb) {
+  if (model == ModelKind::Irreversible2TCM) {
+    return fit_vb ? 4 : 3;
+  }
+  return fit_vb ? 5 : 4;
+}
+
+std::size_t append_if_active(
+    bool enabled,
+    double value,
+    std::array<double, kMaxParameterCount>& values,
+    std::size_t index) {
+  if (enabled) {
+    values[index] = value;
+    return index + 1;
+  }
+  return index;
+}
+
 double clamp01(double value) {
   return std::clamp(value, 0.0, 1.0);
+}
+
+struct SampledCurve {
+  double value = 0.0;
+  double derivative = 0.0;
+};
+
+SampledCurve sample_piecewise_linear_with_derivative(
+    const std::vector<double>& time_minutes,
+    const std::vector<double>& signal,
+    double t) {
+  SampledCurve sampled{};
+  if (time_minutes.empty() || signal.empty()) {
+    return sampled;
+  }
+  if (t < 0.0) {
+    return sampled;
+  }
+  if (time_minutes.size() == 1) {
+    if (time_minutes[0] > 0.0 && t < time_minutes[0]) {
+      sampled.value = signal[0] * (t / time_minutes[0]);
+      sampled.derivative = signal[0] / time_minutes[0];
+      return sampled;
+    }
+    sampled.value = signal[0];
+    return sampled;
+  }
+  if (t < time_minutes[0]) {
+    if (time_minutes[0] <= 0.0) {
+      sampled.value = signal[0];
+      return sampled;
+    }
+    sampled.value = signal[0] * (t / time_minutes[0]);
+    sampled.derivative = signal[0] / time_minutes[0];
+    return sampled;
+  }
+  if (t > time_minutes.back()) {
+    sampled.value = signal.back();
+    return sampled;
+  }
+
+  const auto upper = std::upper_bound(time_minutes.begin(), time_minutes.end(), t);
+  const std::size_t idx = static_cast<std::size_t>(std::max<std::ptrdiff_t>(0, upper - time_minutes.begin() - 1));
+  if (idx + 1 >= time_minutes.size()) {
+    sampled.value = signal.back();
+    return sampled;
+  }
+
+  const double t0 = time_minutes[idx];
+  const double t1 = time_minutes[idx + 1];
+  if (t1 <= t0) {
+    sampled.value = signal[idx];
+    return sampled;
+  }
+  const double slope = (signal[idx + 1] - signal[idx]) / (t1 - t0);
+  sampled.value = signal[idx] + (t - t0) * slope;
+  sampled.derivative = slope;
+  return sampled;
+}
+
+void transform_aif(
+    const std::vector<double>& time_minutes,
+    const std::vector<double>& measured_aif,
+    double delay,
+    double dispersion,
+    std::vector<double>& transformed) {
+  transformed.resize(time_minutes.size());
+  const double tau = std::max(0.0, dispersion);
+  for (std::size_t i = 0; i < time_minutes.size(); ++i) {
+    const SampledCurve sampled =
+        sample_piecewise_linear_with_derivative(time_minutes, measured_aif, time_minutes[i] + delay);
+    transformed[i] = std::max(0.0, sampled.value + tau * sampled.derivative);
+  }
 }
 
 double exp_conv_step(double z, double rate, double dt, double c0, double c1) {
@@ -129,68 +221,110 @@ bool evaluate_reversible_fallback(
 
 }  // namespace
 
-int active_parameter_count(ModelKind model, bool fit_vb) {
-  if (model == ModelKind::Irreversible2TCM) {
-    return fit_vb ? 4 : 3;
-  }
-  return fit_vb ? 5 : 4;
+int active_parameter_count(ModelKind model, bool fit_vb, bool fit_delay, bool fit_dispersion) {
+  return base_parameter_count(model, fit_vb) + (fit_delay ? 1 : 0) + (fit_dispersion ? 1 : 0);
 }
 
 std::string model_name(ModelKind model) {
   return model == ModelKind::Irreversible2TCM ? "2tcm-irreversible" : "2tcm-reversible";
 }
 
-std::string parameter_name(ModelKind model, bool fit_vb, int index) {
+std::string parameter_name(
+    ModelKind model,
+    bool fit_vb,
+    bool fit_delay,
+    bool fit_dispersion,
+    int index) {
   static constexpr const char* kIrrevNoVb[] = {"K1", "k2", "k3"};
   static constexpr const char* kIrrevVb[] = {"K1", "k2", "k3", "vB"};
   static constexpr const char* kRevNoVb[] = {"K1", "k2", "k3", "k4"};
   static constexpr const char* kRevVb[] = {"K1", "k2", "k3", "k4", "vB"};
 
-  if (index < 0 || index >= active_parameter_count(model, fit_vb)) {
+  const int n = active_parameter_count(model, fit_vb, fit_delay, fit_dispersion);
+  if (index < 0 || index >= n) {
     throw std::out_of_range("Invalid parameter index");
   }
 
-  if (model == ModelKind::Irreversible2TCM) {
-    return fit_vb ? kIrrevVb[index] : kIrrevNoVb[index];
+  const int base_count = base_parameter_count(model, fit_vb);
+  if (index < base_count) {
+    if (model == ModelKind::Irreversible2TCM) {
+      return fit_vb ? kIrrevVb[index] : kIrrevNoVb[index];
+    }
+    return fit_vb ? kRevVb[index] : kRevNoVb[index];
   }
-  return fit_vb ? kRevVb[index] : kRevNoVb[index];
+  int extra_index = index - base_count;
+  if (fit_delay) {
+    if (extra_index == 0) {
+      return "delay";
+    }
+    --extra_index;
+  }
+  if (fit_dispersion && extra_index == 0) {
+    return "dispersion";
+  }
+  throw std::out_of_range("Invalid parameter index");
 }
 
-SolverBounds default_bounds(ModelKind model, bool fit_vb, double fixed_vb) {
+SolverBounds default_bounds(
+    ModelKind model,
+    bool fit_vb,
+    double fixed_vb,
+    bool fit_delay,
+    double fixed_delay,
+    bool fit_dispersion,
+    double fixed_dispersion) {
   SolverBounds bounds{};
-  bounds.lower = {0.0, 0.0, 0.0, 0.0, 0.0};
-  bounds.upper = {5.0, 5.0, 3.0, 1.0, 0.95};
+  bounds.lower.fill(0.0);
+  bounds.upper.fill(0.0);
 
-  if (model == ModelKind::Irreversible2TCM) {
-    if (fit_vb) {
-      bounds.upper[3] = 1.0;
-    }
-  } else {
-    bounds.upper[3] = 1.0;
-    if (fit_vb) {
-      bounds.upper[4] = 1.0;
-    }
+  std::size_t index = 0;
+  bounds.lower[index] = 0.0;
+  bounds.upper[index++] = 10.0;  // K1
+  bounds.lower[index] = 0.0;
+  bounds.upper[index++] = 10.0;  // k2
+  bounds.lower[index] = 0.0;
+  bounds.upper[index++] = 5.0;  // k3
+  if (model == ModelKind::Reversible2TCM) {
+    bounds.lower[index] = 0.0;
+    bounds.upper[index++] = 1.0;  // k4
   }
-
-  if (!fit_vb) {
-    if (model == ModelKind::Irreversible2TCM) {
-      bounds.lower[3] = 0.0;
-      bounds.upper[3] = 0.0;
-    } else {
-      bounds.lower[4] = fixed_vb;
-      bounds.upper[4] = fixed_vb;
-    }
+  if (fit_vb) {
+    bounds.lower[index] = 0.0;
+    bounds.upper[index++] = 1.0;
+  } else {
+    (void)fixed_vb;
+  }
+  if (fit_delay) {
+    bounds.lower[index] = -0.2;
+    bounds.upper[index++] = 0.2;
+  } else {
+    (void)fixed_delay;
+  }
+  if (fit_dispersion) {
+    bounds.lower[index] = 0.0;
+    bounds.upper[index++] = 0.1;
+  } else {
+    (void)fixed_dispersion;
   }
   return bounds;
 }
 
-ParameterVector default_initial_guess(ModelKind model, bool fit_vb, double fixed_vb) {
+ParameterVector default_initial_guess(
+    ModelKind model,
+    bool fit_vb,
+    double fixed_vb,
+    bool fit_delay,
+    double fixed_delay,
+    bool fit_dispersion,
+    double fixed_dispersion) {
   ParameterVector params{};
   params.K1 = 0.1;
   params.k2 = 0.1;
   params.k3 = 0.1;
   params.k4 = model == ModelKind::Reversible2TCM ? 0.05 : 0.0;
   params.vB = fit_vb ? 0.05 : fixed_vb;
+  params.delay = fit_delay ? 0.0 : fixed_delay;
+  params.dispersion = fit_dispersion ? 0.02 : fixed_dispersion;
   return params;
 }
 
@@ -199,11 +333,15 @@ ParameterVector clip_to_bounds(
     ModelKind model,
     bool fit_vb,
     double fixed_vb,
+    bool fit_delay,
+    double fixed_delay,
+    bool fit_dispersion,
+    double fixed_dispersion,
     const SolverBounds& bounds) {
-  std::array<double, 5> values{};
-  pack_active(params, model, fit_vb, values);
+  std::array<double, kMaxParameterCount> values{};
+  pack_active(params, model, fit_vb, fit_delay, fit_dispersion, values);
 
-  const int n = active_parameter_count(model, fit_vb);
+  const int n = active_parameter_count(model, fit_vb, fit_delay, fit_dispersion);
   for (int i = 0; i < n; ++i) {
     values[static_cast<std::size_t>(i)] = std::clamp(
         values[static_cast<std::size_t>(i)],
@@ -211,40 +349,61 @@ ParameterVector clip_to_bounds(
         bounds.upper[static_cast<std::size_t>(i)]);
   }
 
-  return unpack_active(values, model, fit_vb, fixed_vb);
+  return unpack_active(
+      values,
+      model,
+      fit_vb,
+      fixed_vb,
+      fit_delay,
+      fixed_delay,
+      fit_dispersion,
+      fixed_dispersion);
 }
 
 void pack_active(
     const ParameterVector& params,
     ModelKind model,
     bool fit_vb,
-    std::array<double, 5>& values) {
+    bool fit_delay,
+    bool fit_dispersion,
+    std::array<double, kMaxParameterCount>& values) {
   values.fill(0.0);
-  values[0] = params.K1;
-  values[1] = params.k2;
-  values[2] = params.k3;
+  std::size_t index = 0;
+  values[index++] = params.K1;
+  values[index++] = params.k2;
+  values[index++] = params.k3;
   if (model == ModelKind::Reversible2TCM) {
-    values[3] = params.k4;
+    values[index++] = params.k4;
     if (fit_vb) {
-      values[4] = params.vB;
+      values[index++] = params.vB;
     }
   } else if (fit_vb) {
-    values[3] = params.vB;
+    values[index++] = params.vB;
   }
+  index = append_if_active(fit_delay, params.delay, values, index);
+  (void)append_if_active(fit_dispersion, params.dispersion, values, index);
 }
 
 ParameterVector unpack_active(
-    const std::array<double, 5>& values,
+    const std::array<double, kMaxParameterCount>& values,
     ModelKind model,
     bool fit_vb,
-    double fixed_vb) {
+    double fixed_vb,
+    bool fit_delay,
+    double fixed_delay,
+    bool fit_dispersion,
+    double fixed_dispersion) {
   ParameterVector params{};
-  params.K1 = values[0];
-  params.k2 = values[1];
-  params.k3 = values[2];
-  params.k4 = model == ModelKind::Reversible2TCM ? values[3] : 0.0;
-  params.vB = fit_vb ? values[model == ModelKind::Reversible2TCM ? 4 : 3] : fixed_vb;
+  std::size_t index = 0;
+  params.K1 = values[index++];
+  params.k2 = values[index++];
+  params.k3 = values[index++];
+  params.k4 = model == ModelKind::Reversible2TCM ? values[index++] : 0.0;
+  params.vB = fit_vb ? values[index++] : fixed_vb;
+  params.delay = fit_delay ? values[index++] : fixed_delay;
+  params.dispersion = fit_dispersion ? values[index++] : fixed_dispersion;
   params.vB = clamp01(params.vB);
+  params.dispersion = std::max(0.0, params.dispersion);
   return params;
 }
 
@@ -287,6 +446,7 @@ bool evaluate_model(
 
   ParameterVector params = raw_params;
   params.vB = clamp01(params.vB);
+  params.dispersion = std::max(0.0, params.dispersion);
   if (params.K1 < 0.0 || params.k2 < 0.0 || params.k3 < 0.0 || params.k4 < 0.0) {
     return false;
   }
@@ -296,6 +456,9 @@ bool evaluate_model(
     if (value < 1e-5) {
       value = 0.0;
     }
+  }
+  if (std::abs(params.delay) > 1e-12 || params.dispersion > 1e-12) {
+    transform_aif(time_minutes, aif, params.delay, params.dispersion, aif);
   }
 
   const std::size_t t_count = time_minutes.size();

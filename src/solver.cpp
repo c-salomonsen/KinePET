@@ -31,34 +31,38 @@ struct Workspace {
   std::vector<double> trial_residuals;
   std::vector<double> plus_predicted;
   std::vector<double> minus_predicted;
-  std::array<double, 5> u{};
-  std::array<double, 5> trial_u{};
-  std::array<double, 5> gradient{};
-  std::array<double, 25> hessian{};
-  std::array<double, 5> step{};
+  std::array<double, kMaxParameterCount> u{};
+  std::array<double, kMaxParameterCount> trial_u{};
+  std::array<double, kMaxParameterCount> gradient{};
+  std::array<double, kMaxMatrixSize> hessian{};
+  std::array<double, kMaxParameterCount> step{};
   std::vector<double> jacobian;
 };
 
-std::array<double, 5> active_lower(
+std::array<double, kMaxParameterCount> active_lower(
     const SolverBounds& bounds,
     ModelKind model,
-    bool fit_vb) {
-  std::array<double, 5> out{};
+    bool fit_vb,
+    bool fit_delay,
+    bool fit_dispersion) {
+  std::array<double, kMaxParameterCount> out{};
   out.fill(0.0);
-  const int n = active_parameter_count(model, fit_vb);
+  const int n = active_parameter_count(model, fit_vb, fit_delay, fit_dispersion);
   for (int i = 0; i < n; ++i) {
     out[static_cast<std::size_t>(i)] = bounds.lower[static_cast<std::size_t>(i)];
   }
   return out;
 }
 
-std::array<double, 5> active_upper(
+std::array<double, kMaxParameterCount> active_upper(
     const SolverBounds& bounds,
     ModelKind model,
-    bool fit_vb) {
-  std::array<double, 5> out{};
+    bool fit_vb,
+    bool fit_delay,
+    bool fit_dispersion) {
+  std::array<double, kMaxParameterCount> out{};
   out.fill(0.0);
-  const int n = active_parameter_count(model, fit_vb);
+  const int n = active_parameter_count(model, fit_vb, fit_delay, fit_dispersion);
   for (int i = 0; i < n; ++i) {
     out[static_cast<std::size_t>(i)] = bounds.upper[static_cast<std::size_t>(i)];
   }
@@ -66,11 +70,11 @@ std::array<double, 5> active_upper(
 }
 
 void x_to_u(
-    const std::array<double, 5>& x,
-    const std::array<double, 5>& lower,
-    const std::array<double, 5>& upper,
+    const std::array<double, kMaxParameterCount>& x,
+    const std::array<double, kMaxParameterCount>& lower,
+    const std::array<double, kMaxParameterCount>& upper,
     int n,
-    std::array<double, 5>& u) {
+    std::array<double, kMaxParameterCount>& u) {
   constexpr double eps = 1e-8;
   for (int i = 0; i < n; ++i) {
     const double span = upper[static_cast<std::size_t>(i)] - lower[static_cast<std::size_t>(i)];
@@ -81,19 +85,41 @@ void x_to_u(
 }
 
 ParameterVector u_to_params(
-    const std::array<double, 5>& u,
+    const std::array<double, kMaxParameterCount>& u,
     const SolverOptions& options) {
-  const int n = active_parameter_count(options.model, options.fit_vb);
-  std::array<double, 5> x{};
-  const auto lower = active_lower(options.bounds, options.model, options.fit_vb);
-  const auto upper = active_upper(options.bounds, options.model, options.fit_vb);
+  const int n = active_parameter_count(
+      options.model,
+      options.fit_vb,
+      options.fit_delay,
+      options.fit_dispersion);
+  std::array<double, kMaxParameterCount> x{};
+  const auto lower = active_lower(
+      options.bounds,
+      options.model,
+      options.fit_vb,
+      options.fit_delay,
+      options.fit_dispersion);
+  const auto upper = active_upper(
+      options.bounds,
+      options.model,
+      options.fit_vb,
+      options.fit_delay,
+      options.fit_dispersion);
   for (int i = 0; i < n; ++i) {
     const double s = stable_sigmoid(u[static_cast<std::size_t>(i)]);
     x[static_cast<std::size_t>(i)] =
         lower[static_cast<std::size_t>(i)] +
         (upper[static_cast<std::size_t>(i)] - lower[static_cast<std::size_t>(i)]) * s;
   }
-  return unpack_active(x, options.model, options.fit_vb, options.fixed_vb);
+  return unpack_active(
+      x,
+      options.model,
+      options.fit_vb,
+      options.fixed_vb,
+      options.fit_delay,
+      options.fixed_delay,
+      options.fit_dispersion,
+      options.fixed_dispersion);
 }
 
 bool evaluate_weighted_residuals(
@@ -102,7 +128,7 @@ bool evaluate_weighted_residuals(
     const std::vector<double>& aif,
     const std::vector<double>& weights,
     const std::vector<double>& tac,
-    const std::array<double, 5>& u,
+    const std::array<double, kMaxParameterCount>& u,
     std::vector<double>& predicted,
     std::vector<double>& residuals,
     double& cost,
@@ -204,20 +230,20 @@ void build_normal_equations(Workspace& work) {
       for (int j = 0; j < work.n_params; ++j) {
         const double jj =
             work.jacobian[row * static_cast<std::size_t>(work.n_params) + static_cast<std::size_t>(j)];
-        work.hessian[static_cast<std::size_t>(i * 5 + j)] += ji * jj;
+        work.hessian[static_cast<std::size_t>(i * kMaxParameterCount + j)] += ji * jj;
       }
     }
   }
 }
 
 bool solve_lm_step(Workspace& work, double lambda) {
-  std::array<double, 25> system = work.hessian;
-  std::array<double, 5> rhs{};
+  std::array<double, kMaxMatrixSize> system = work.hessian;
+  std::array<double, kMaxParameterCount> rhs{};
   rhs.fill(0.0);
 
   for (int i = 0; i < work.n_params; ++i) {
-    system[static_cast<std::size_t>(i * 5 + i)] +=
-        lambda * std::max(1e-12, work.hessian[static_cast<std::size_t>(i * 5 + i)]);
+    system[static_cast<std::size_t>(i * kMaxParameterCount + i)] +=
+        lambda * std::max(1e-12, work.hessian[static_cast<std::size_t>(i * kMaxParameterCount + i)]);
     rhs[static_cast<std::size_t>(i)] = -work.gradient[static_cast<std::size_t>(i)];
   }
 
@@ -237,10 +263,26 @@ FitResult initial_result(
   result.ki = compute_ki(start_params);
   result.status = FitStatus::InvalidInput;
 
-  std::array<double, 5> x{};
-  pack_active(start_params, options.model, options.fit_vb, x);
-  const auto lower = active_lower(options.bounds, options.model, options.fit_vb);
-  const auto upper = active_upper(options.bounds, options.model, options.fit_vb);
+  std::array<double, kMaxParameterCount> x{};
+  pack_active(
+      start_params,
+      options.model,
+      options.fit_vb,
+      options.fit_delay,
+      options.fit_dispersion,
+      x);
+  const auto lower = active_lower(
+      options.bounds,
+      options.model,
+      options.fit_vb,
+      options.fit_delay,
+      options.fit_dispersion);
+  const auto upper = active_upper(
+      options.bounds,
+      options.model,
+      options.fit_vb,
+      options.fit_delay,
+      options.fit_dispersion);
   x_to_u(x, lower, upper, work.n_params, work.u);
 
   double cost = 0.0;
@@ -285,7 +327,11 @@ FitResult fit_voxel(
   }
 
   Workspace work;
-  work.n_params = active_parameter_count(options.model, options.fit_vb);
+  work.n_params = active_parameter_count(
+      options.model,
+      options.fit_vb,
+      options.fit_delay,
+      options.fit_dispersion);
   work.predicted.reserve(tac.size());
   work.residuals.reserve(tac.size());
   work.trial_predicted.reserve(tac.size());
@@ -293,12 +339,23 @@ FitResult fit_voxel(
   work.plus_predicted.reserve(tac.size());
   work.minus_predicted.reserve(tac.size());
 
-  ParameterVector start = default_initial_guess(options.model, options.fit_vb, options.fixed_vb);
+  ParameterVector start = default_initial_guess(
+      options.model,
+      options.fit_vb,
+      options.fixed_vb,
+      options.fit_delay,
+      options.fixed_delay,
+      options.fit_dispersion,
+      options.fixed_dispersion);
   if (options.use_linear_warm_start) {
     const WarmStartResult warm = linear_warm_start(
         options.model,
         options.fit_vb,
         options.fixed_vb,
+        options.fit_delay,
+        options.fixed_delay,
+        options.fit_dispersion,
+        options.fixed_dispersion,
         options.bounds,
         time_minutes,
         aif,
@@ -307,7 +364,16 @@ FitResult fit_voxel(
       start = warm.params;
     }
   }
-  start = clip_to_bounds(start, options.model, options.fit_vb, options.fixed_vb, options.bounds);
+  start = clip_to_bounds(
+      start,
+      options.model,
+      options.fit_vb,
+      options.fixed_vb,
+      options.fit_delay,
+      options.fixed_delay,
+      options.fit_dispersion,
+      options.fixed_dispersion,
+      options.bounds);
 
   result = initial_result(options, time_minutes, aif, weights, tac, work, start);
   if (result.status == FitStatus::InvalidInput) {

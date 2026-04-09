@@ -19,6 +19,10 @@ struct SolverOptions {
   ModelKind model = ModelKind::Reversible2TCM;
   bool fit_vb = true;
   double fixed_vb = 0.05;
+  bool fit_delay = false;
+  double fixed_delay = 0.0;
+  bool fit_dispersion = false;
+  double fixed_dispersion = 0.0;
   SolverBounds bounds{};
   int max_iterations = 40;
   double gradient_tolerance = 1e-6;

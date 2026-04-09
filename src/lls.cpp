@@ -26,10 +26,10 @@ bool solve_ridge(
     const std::vector<std::vector<double>>& design,
     const std::vector<double>& y,
     double ridge,
-    std::array<double, 5>& coeffs,
+    std::array<double, kMaxParameterCount>& coeffs,
     int p) {
-  std::array<double, 25> gram{};
-  std::array<double, 5> rhs{};
+  std::array<double, kMaxMatrixSize> gram{};
+  std::array<double, kMaxParameterCount> rhs{};
   gram.fill(0.0);
   rhs.fill(0.0);
 
@@ -37,14 +37,14 @@ bool solve_ridge(
     for (int i = 0; i < p; ++i) {
       rhs[static_cast<std::size_t>(i)] += design[row][static_cast<std::size_t>(i)] * y[row];
       for (int j = 0; j < p; ++j) {
-        gram[static_cast<std::size_t>(i * 5 + j)] +=
+        gram[static_cast<std::size_t>(i * kMaxParameterCount + j)] +=
             design[row][static_cast<std::size_t>(i)] * design[row][static_cast<std::size_t>(j)];
       }
     }
   }
 
   for (int i = 0; i < p; ++i) {
-    gram[static_cast<std::size_t>(i * 5 + i)] += ridge;
+    gram[static_cast<std::size_t>(i * kMaxParameterCount + i)] += ridge;
   }
 
   return solve_linear_system(gram, rhs, p, coeffs);
@@ -60,6 +60,10 @@ WarmStartResult linear_warm_start(
     ModelKind model,
     bool fit_vb,
     double fixed_vb,
+    bool fit_delay,
+    double fixed_delay,
+    bool fit_dispersion,
+    double fixed_dispersion,
     const SolverBounds& bounds,
     const std::vector<double>& time_minutes,
     const std::vector<double>& aif,
@@ -75,9 +79,16 @@ WarmStartResult linear_warm_start(
   const std::vector<double> i_cp = cumulative_trapezoid(aif, time_minutes);
   const std::vector<double> i2_cp = cumulative_trapezoid(i_cp, time_minutes);
 
-  std::array<double, 5> coeffs{};
+  std::array<double, kMaxParameterCount> coeffs{};
   coeffs.fill(0.0);
-  ParameterVector params = default_initial_guess(model, fit_vb, fixed_vb);
+  ParameterVector params = default_initial_guess(
+      model,
+      fit_vb,
+      fixed_vb,
+      fit_delay,
+      fixed_delay,
+      fit_dispersion,
+      fixed_dispersion);
 
   if (fit_vb) {
     if (model == ModelKind::Irreversible2TCM) {
@@ -210,7 +221,16 @@ WarmStartResult linear_warm_start(
     return result;
   }
 
-  params = clip_to_bounds(params, model, fit_vb, fixed_vb, bounds);
+  params = clip_to_bounds(
+      params,
+      model,
+      fit_vb,
+      fixed_vb,
+      fit_delay,
+      fixed_delay,
+      fit_dispersion,
+      fixed_dispersion,
+      bounds);
   result.params = params;
   result.valid = true;
   return result;

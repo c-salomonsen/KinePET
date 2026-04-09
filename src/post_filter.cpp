@@ -84,6 +84,8 @@ PostFilterResult apply_selective_status_median_filter(
     std::vector<double>& k3_map,
     std::vector<double>* k4_map,
     std::vector<double>& vb_map,
+    std::vector<double>* delay_map,
+    std::vector<double>* dispersion_map,
     std::vector<double>& ki_map) {
   const std::size_t voxel_count = depth * height * width;
   if (spatial_mask.size() != voxel_count || status_map.size() != voxel_count ||
@@ -173,6 +175,20 @@ PostFilterResult apply_selective_status_median_filter(
       apply_plan_to_map(k3_map, plans, options.min_reliable_neighbors);
   const std::vector<double> vb_filtered =
       apply_plan_to_map(vb_map, plans, options.min_reliable_neighbors);
+  std::vector<double> delay_filtered;
+  if (delay_map != nullptr) {
+    if (delay_map->size() != voxel_count) {
+      throw std::runtime_error("Delay map size mismatch");
+    }
+    delay_filtered = apply_plan_to_map(*delay_map, plans, options.min_reliable_neighbors);
+  }
+  std::vector<double> dispersion_filtered;
+  if (dispersion_map != nullptr) {
+    if (dispersion_map->size() != voxel_count) {
+      throw std::runtime_error("Dispersion map size mismatch");
+    }
+    dispersion_filtered = apply_plan_to_map(*dispersion_map, plans, options.min_reliable_neighbors);
+  }
 
   std::vector<double> k4_filtered;
   if (model == ModelKind::Reversible2TCM) {
@@ -183,6 +199,12 @@ PostFilterResult apply_selective_status_median_filter(
   k2_map = k2_filtered;
   k3_map = k3_filtered;
   vb_map = vb_filtered;
+  if (delay_map != nullptr) {
+    *delay_map = delay_filtered;
+  }
+  if (dispersion_map != nullptr) {
+    *dispersion_map = dispersion_filtered;
+  }
   if (model == ModelKind::Reversible2TCM) {
     *k4_map = k4_filtered;
   }
@@ -194,6 +216,8 @@ PostFilterResult apply_selective_status_median_filter(
     params.k3 = k3_map[plan.center];
     params.k4 = model == ModelKind::Reversible2TCM ? (*k4_map)[plan.center] : 0.0;
     params.vB = vb_map[plan.center];
+    params.delay = delay_map != nullptr ? (*delay_map)[plan.center] : 0.0;
+    params.dispersion = dispersion_map != nullptr ? (*dispersion_map)[plan.center] : 0.0;
     ki_map[plan.center] = compute_ki(params);
   }
 

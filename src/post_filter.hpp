@@ -36,6 +36,8 @@ PostFilterResult apply_selective_status_median_filter(
     std::vector<double>& k3_map,
     std::vector<double>* k4_map,
     std::vector<double>& vb_map,
+    std::vector<double>* delay_map,
+    std::vector<double>* dispersion_map,
     std::vector<double>& ki_map);
 
 }  // namespace tcm

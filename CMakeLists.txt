@@ -15,6 +15,7 @@ add_executable(
   src/lls.cpp
   src/npy.cpp
   src/post_filter.cpp
+  src/preprocess.cpp
   src/solver.cpp
   src/tcm_model.cpp
 )

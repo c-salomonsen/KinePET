@@ -69,17 +69,51 @@ def robust_limits(array: np.ndarray, mask: np.ndarray | None = None) -> tuple[fl
 
 def model_bounds(model_name: str, fit_vb: bool, fixed_vb: float) -> dict[str, tuple[float, float]]:
     bounds = {
-        "K1": (0.0, 5.0),
-        "k2": (0.0, 5.0),
-        "k3": (0.0, 3.0),
+        "K1": (0.0, 10.0),
+        "k2": (0.0, 10.0),
+        "k3": (0.0, 5.0),
     }
     if model_name == "2tcm-reversible":
-        bounds["k4"] = (0.0, 3.0)
+        bounds["k4"] = (0.0, 1.0)
     if fit_vb:
         bounds["vB"] = (0.0, 1.0)
     else:
         bounds["vB"] = (fixed_vb, fixed_vb)
     return bounds
+
+
+def sample_piecewise_linear_with_derivative(time: np.ndarray, signal: np.ndarray, t: float) -> tuple[float, float]:
+    if t < 0.0:
+        return 0.0, 0.0
+    if time.size == 1:
+        if time[0] > 0.0 and t < float(time[0]):
+            return float(signal[0]) * (t / float(time[0])), float(signal[0]) / float(time[0])
+        return float(signal[0]), 0.0
+    if t < float(time[0]):
+        if float(time[0]) <= 0.0:
+            return float(signal[0]), 0.0
+        return float(signal[0]) * (t / float(time[0])), float(signal[0]) / float(time[0])
+    if t > float(time[-1]):
+        return float(signal[-1]), 0.0
+    upper = int(np.searchsorted(time, t, side="right"))
+    idx = max(0, upper - 1)
+    if idx + 1 >= time.size:
+        return float(signal[-1]), 0.0
+    t0 = float(time[idx])
+    t1 = float(time[idx + 1])
+    if t1 <= t0:
+        return float(signal[idx]), 0.0
+    slope = (float(signal[idx + 1]) - float(signal[idx])) / (t1 - t0)
+    return float(signal[idx]) + (t - t0) * slope, slope
+
+
+def transform_aif(time: np.ndarray, aif: np.ndarray, delay: float, dispersion: float) -> np.ndarray:
+    tau = max(float(dispersion), 0.0)
+    out = np.zeros_like(aif, dtype=np.float64)
+    for i, t in enumerate(time):
+        value, deriv = sample_piecewise_linear_with_derivative(time, aif, float(t) + float(delay))
+        out[i] = max(0.0, value + tau * deriv)
+    return out
 
 
 def exp_conv_step(z: float, rate: float, dt: float, c0: float, c1: float) -> float:
@@ -101,21 +135,24 @@ def predict_irreversible(
     k2: float,
     k3: float,
     vB: float,
+    delay: float = 0.0,
+    dispersion: float = 0.0,
 ) -> np.ndarray:
+    aif_eff = transform_aif(time, aif, delay, dispersion) if abs(delay) > 1e-12 or dispersion > 1e-12 else aif
     lam = max(k2 + k3, 1e-12)
     z = 0.0
     icp = 0.0
     out = np.zeros_like(time, dtype=np.float64)
     if time[0] > 0:
-        z = exp_conv_step(0.0, lam, float(time[0]), 0.0, float(aif[0]))
-        icp = 0.5 * float(aif[0]) * float(time[0])
-    out[0] = (1.0 - vB) * (K1 / lam * (k3 * icp + k2 * z)) + vB * aif[0]
+        z = exp_conv_step(0.0, lam, float(time[0]), 0.0, float(aif_eff[0]))
+        icp = 0.5 * float(aif_eff[0]) * float(time[0])
+    out[0] = (1.0 - vB) * (K1 / lam * (k3 * icp + k2 * z)) + vB * aif_eff[0]
     for i in range(len(time) - 1):
         dt = float(time[i + 1] - time[i])
-        z = exp_conv_step(z, lam, dt, float(aif[i]), float(aif[i + 1]))
-        icp += 0.5 * float(aif[i] + aif[i + 1]) * dt
+        z = exp_conv_step(z, lam, dt, float(aif_eff[i]), float(aif_eff[i + 1]))
+        icp += 0.5 * float(aif_eff[i] + aif_eff[i + 1]) * dt
         tissue = K1 / lam * (k3 * icp + k2 * z)
-        out[i + 1] = (1.0 - vB) * tissue + vB * aif[i + 1]
+        out[i + 1] = (1.0 - vB) * tissue + vB * aif_eff[i + 1]
     return out
 
 
@@ -127,7 +164,10 @@ def predict_reversible(
     k3: float,
     k4: float,
     vB: float,
+    delay: float = 0.0,
+    dispersion: float = 0.0,
 ) -> np.ndarray:
+    aif_eff = transform_aif(time, aif, delay, dispersion) if abs(delay) > 1e-12 or dispersion > 1e-12 else aif
     rate_sum = k2 + k3 + k4
     discriminant = max(rate_sum * rate_sum - 4.0 * k2 * k4, 0.0)
     root = math.sqrt(discriminant)
@@ -143,14 +183,14 @@ def predict_reversible(
     z2 = 0.0
     out = np.zeros_like(time, dtype=np.float64)
     if time[0] > 0:
-        z1 = exp_conv_step(0.0, a1, float(time[0]), 0.0, float(aif[0]))
-        z2 = exp_conv_step(0.0, a2, float(time[0]), 0.0, float(aif[0]))
-    out[0] = (1.0 - vB) * (c1 * z1 + c2 * z2) + vB * aif[0]
+        z1 = exp_conv_step(0.0, a1, float(time[0]), 0.0, float(aif_eff[0]))
+        z2 = exp_conv_step(0.0, a2, float(time[0]), 0.0, float(aif_eff[0]))
+    out[0] = (1.0 - vB) * (c1 * z1 + c2 * z2) + vB * aif_eff[0]
     for i in range(len(time) - 1):
         dt = float(time[i + 1] - time[i])
-        z1 = exp_conv_step(z1, a1, dt, float(aif[i]), float(aif[i + 1]))
-        z2 = exp_conv_step(z2, a2, dt, float(aif[i]), float(aif[i + 1]))
-        out[i + 1] = (1.0 - vB) * (c1 * z1 + c2 * z2) + vB * aif[i + 1]
+        z1 = exp_conv_step(z1, a1, dt, float(aif_eff[i]), float(aif_eff[i + 1]))
+        z2 = exp_conv_step(z2, a2, dt, float(aif_eff[i]), float(aif_eff[i + 1]))
+        out[i + 1] = (1.0 - vB) * (c1 * z1 + c2 * z2) + vB * aif_eff[i + 1]
     return out
 
 
@@ -182,6 +222,22 @@ class Dataset:
         return float(self.metadata.get("fixed_vb", "0.05"))
 
     @property
+    def fit_delay(self) -> bool:
+        return self.metadata.get("fit_delay", "0") == "1"
+
+    @property
+    def fixed_delay(self) -> float:
+        return float(self.metadata.get("fixed_delay", "0.0"))
+
+    @property
+    def fit_dispersion(self) -> bool:
+        return self.metadata.get("fit_dispersion", "0") == "1"
+
+    @property
+    def fixed_dispersion(self) -> float:
+        return float(self.metadata.get("fixed_dispersion", "0.0"))
+
+    @property
     def mask(self) -> np.ndarray:
         return self.maps["mask"].astype(bool)
 
@@ -192,14 +248,18 @@ class Dataset:
         k2 = float(self.maps["k2"][z, y, x])
         k3 = float(self.maps["k3"][z, y, x])
         vB = float(self.maps["vB"][z, y, x])
-        if not all(np.isfinite([K1, k2, k3, vB])):
+        delay = float(self.maps["delay"][z, y, x]) if "delay" in self.maps else self.fixed_delay
+        dispersion = (
+            float(self.maps["dispersion"][z, y, x]) if "dispersion" in self.maps else self.fixed_dispersion
+        )
+        if not all(np.isfinite([K1, k2, k3, vB, delay, dispersion])):
             return None
         if self.is_reversible:
             k4 = float(self.maps["k4"][z, y, x])
             if not np.isfinite(k4):
                 return None
-            return predict_reversible(self.time, self.aif, K1, k2, k3, k4, vB)
-        return predict_irreversible(self.time, self.aif, K1, k2, k3, vB)
+            return predict_reversible(self.time, self.aif, K1, k2, k3, k4, vB, delay, dispersion)
+        return predict_irreversible(self.time, self.aif, K1, k2, k3, vB, delay, dispersion)
 
 
 def load_dataset(input_dir: Path, fit_dir: Path) -> Dataset:
@@ -228,6 +288,10 @@ def load_dataset(input_dir: Path, fit_dir: Path) -> Dataset:
     }
     if (fit_dir / "k4.npy").exists():
         maps["k4"] = np.load(fit_dir / "k4.npy")
+    if (fit_dir / "delay.npy").exists():
+        maps["delay"] = np.load(fit_dir / "delay.npy")
+    if (fit_dir / "dispersion.npy").exists():
+        maps["dispersion"] = np.load(fit_dir / "dispersion.npy")
     if (fit_dir / "mask_raw.npy").exists():
         maps["mask_raw"] = np.load(fit_dir / "mask_raw.npy")
     if (fit_dir / "mask_removed.npy").exists():
@@ -244,6 +308,16 @@ def load_dataset(input_dir: Path, fit_dir: Path) -> Dataset:
     fit_vb = metadata.get("fit_vb", "1") == "1"
     fixed_vb = float(metadata.get("fixed_vb", "0.05"))
     bounds = model_bounds(metadata.get("model", "2tcm-reversible"), fit_vb, fixed_vb)
+    if metadata.get("fit_delay", "0") == "1":
+        bounds["delay"] = (-0.2, 0.2)
+    elif abs(float(metadata.get("fixed_delay", "0.0"))) > 1e-12 and "delay" in maps:
+        fixed_delay = float(metadata.get("fixed_delay", "0.0"))
+        bounds["delay"] = (fixed_delay, fixed_delay)
+    if metadata.get("fit_dispersion", "0") == "1":
+        bounds["dispersion"] = (0.0, 0.1)
+    elif abs(float(metadata.get("fixed_dispersion", "0.0"))) > 1e-12 and "dispersion" in maps:
+        fixed_dispersion = float(metadata.get("fixed_dispersion", "0.0"))
+        bounds["dispersion"] = (fixed_dispersion, fixed_dispersion)
     return Dataset(input_dir, fit_dir, image, time, aif, maps, metadata, bounds)
 
 
@@ -366,11 +440,13 @@ def main() -> None:
         visible=False,
     )
 
-    for name in ["K1", "k2", "k3", "Ki", "vB", "rmse"]:
+    for name in ["K1", "k2", "k3", "Ki", "vB", "rmse", "delay", "dispersion"]:
+        if name not in dataset.maps:
+            continue
         viewer.add_image(
             dataset.maps[name],
             name=name,
-            colormap="viridis" if name != "rmse" else "magma",
+            colormap="viridis" if name not in {"rmse"} else "magma",
             opacity=0.85,
             contrast_limits=robust_limits(dataset.maps[name], dataset.mask),
             visible=name in {"Ki", "rmse"},
@@ -528,6 +604,10 @@ def main() -> None:
             if "k4" in self.data.maps:
                 parameter_text.append(f"k4={float(self.data.maps['k4'][z, y, x]):.4g}")
             parameter_text.append(f"vB={float(self.data.maps['vB'][z, y, x]):.4g}")
+            if "delay" in self.data.maps:
+                parameter_text.append(f"delay={float(self.data.maps['delay'][z, y, x]):.4g}")
+            if "dispersion" in self.data.maps:
+                parameter_text.append(f"dispersion={float(self.data.maps['dispersion'][z, y, x]):.4g}")
             parameter_text.append(f"Ki={float(self.data.maps['Ki'][z, y, x]):.4g}")
 
             self.info.setText(
