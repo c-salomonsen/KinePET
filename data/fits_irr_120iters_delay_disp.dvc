@@ -1,0 +1,6 @@
+outs:
+- md5: e3f5b0d18bd8e18d0c937df6df240a80.dir
+  size: 3984341205
+  nfiles: 3194
+  hash: md5
+  path: fits_irr_120iters_delay_disp
