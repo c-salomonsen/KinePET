@@ -1,0 +1,6 @@
+outs:
+- md5: f63d123322d228f9153fda769c6740d7.dir
+  size: 422535
+  nfiles: 6
+  hash: md5
+  path: voi_reference
