@@ -1,6 +1,0 @@
-outs:
-- md5: f553f810f1cdb4faddc70a751d4074b4.dir
-  size: 3977294544
-  nfiles: 3191
-  hash: md5
-  path: fits_irr_120iters
