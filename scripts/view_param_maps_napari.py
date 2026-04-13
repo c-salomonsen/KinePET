@@ -285,9 +285,16 @@ def load_dataset(input_dir: Path, fit_dir: Path) -> Dataset:
         "status": np.load(fit_dir / "status.npy"),
         "iterations": np.load(fit_dir / "iterations.npy"),
         "vB": np.load(fit_dir / "vB.npy"),
+        "K1_rawfit": np.load(fit_dir / "K1_rawfit.npy"),
+        "Ki_rawfit": np.load(fit_dir / "Ki_rawfit.npy"),
+        "k2_rawfit": np.load(fit_dir / "k2_rawfit.npy"),
+        "k3_rawfit": np.load(fit_dir / "k3_rawfit.npy"),
+        "vB_rawfit": np.load(fit_dir / "vB_rawfit.npy"),
     }
     if (fit_dir / "k4.npy").exists():
         maps["k4"] = np.load(fit_dir / "k4.npy")
+    if (fit_dir / "k4_rawfit.npy").exists():
+        maps["k4_rawfit"] = np.load(fit_dir / "k4_rawfit.npy")
     if (fit_dir / "delay.npy").exists():
         maps["delay"] = np.load(fit_dir / "delay.npy")
     if (fit_dir / "dispersion.npy").exists():
@@ -405,6 +412,7 @@ def main() -> None:
         colormap="gray",
         rendering="mip",
         contrast_limits=dynamic_limits,
+        visible=False,
     )
 
     viewer.add_image(
@@ -440,7 +448,7 @@ def main() -> None:
         visible=False,
     )
 
-    for name in ["K1", "k2", "k3", "Ki", "vB", "rmse", "delay", "dispersion"]:
+    for name in ["K1", "k2", "k3", "Ki", "vB", "rmse", "delay", "dispersion", "K1_rawfit", "k2_rawfit", "k3_rawfit", "vB_rawfit", "Ki_rawfit"]:
         if name not in dataset.maps:
             continue
         viewer.add_image(
@@ -449,7 +457,7 @@ def main() -> None:
             colormap="viridis" if name not in {"rmse"} else "magma",
             opacity=0.85,
             contrast_limits=robust_limits(dataset.maps[name], dataset.mask),
-            visible=name in {"Ki", "rmse"},
+            visible=name in {"Ki"},
         )
 
     if "k4" in dataset.maps:
@@ -468,7 +476,7 @@ def main() -> None:
         colormap="inferno",
         opacity=0.85,
         contrast_limits=robust_limits(derived["relative_rmse_peak"], dataset.mask),
-        visible=True,
+        visible=False,
     )
     viewer.add_image(
         derived["relative_rmse_auc"],
@@ -487,7 +495,7 @@ def main() -> None:
         visible=False,
     )
 
-    viewer.add_labels(dataset.mask.astype(np.int32), name="mask", opacity=0.35)
+    viewer.add_labels(dataset.mask.astype(np.int32), name="mask", opacity=0.35, visible=False)
     if "mask_raw" in dataset.maps:
         viewer.add_labels(dataset.maps["mask_raw"].astype(np.int32), name="mask_raw", opacity=0.25, visible=False)
     if "mask_removed" in dataset.maps:
@@ -541,10 +549,11 @@ def main() -> None:
     point_layer = viewer.add_points(
         np.array([selected], dtype=float),
         name="selected_voxel",
-        size=10,
+        size=2,
         face_color="yellow",
         border_color="black",
         ndim=3,
+        visible=False,
     )
 
     compatible_layers: list = []
