@@ -311,6 +311,12 @@ def load_dataset(input_dir: Path, fit_dir: Path) -> Dataset:
         maps["postfilter_applied"] = np.load(fit_dir / "postfilter_applied.npy")
     if (fit_dir / "postfilter_unresolved.npy").exists():
         maps["postfilter_unresolved"] = np.load(fit_dir / "postfilter_unresolved.npy")
+    if (fit_dir / "rescue_target.npy").exists():
+        maps["rescue_target"] = np.load(fit_dir / "rescue_target.npy")
+    if (fit_dir / "rescue_applied.npy").exists():
+        maps["rescue_applied"] = np.load(fit_dir / "rescue_applied.npy")
+    if (fit_dir / "rescue_unresolved.npy").exists():
+        maps["rescue_unresolved"] = np.load(fit_dir / "rescue_unresolved.npy")
 
     fit_vb = metadata.get("fit_vb", "1") == "1"
     fixed_vb = float(metadata.get("fixed_vb", "0.05"))
@@ -516,6 +522,27 @@ def main() -> None:
         viewer.add_labels(
             dataset.maps["postfilter_target"].astype(np.int32),
             name="postfilter_target",
+            opacity=0.45,
+            visible=False,
+        )
+    if "rescue_target" in dataset.maps:
+        viewer.add_labels(
+            dataset.maps["rescue_target"].astype(np.int32),
+            name="rescue_target",
+            opacity=0.45,
+            visible=False,
+        )
+    if "rescue_applied" in dataset.maps:
+        viewer.add_labels(
+            dataset.maps["rescue_applied"].astype(np.int32),
+            name="rescue_applied",
+            opacity=0.45,
+            visible=False,
+        )
+    if "rescue_unresolved" in dataset.maps:
+        viewer.add_labels(
+            dataset.maps["rescue_unresolved"].astype(np.int32),
+            name="rescue_unresolved",
             opacity=0.45,
             visible=False,
         )

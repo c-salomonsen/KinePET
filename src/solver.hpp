@@ -49,4 +49,12 @@ FitResult fit_voxel(
     const std::vector<double>& weights,
     const std::vector<double>& tac);
 
+FitResult fit_voxel_with_initial_guess(
+    const SolverOptions& options,
+    const std::vector<double>& time_minutes,
+    const std::vector<double>& aif,
+    const std::vector<double>& weights,
+    const std::vector<double>& tac,
+    const ParameterVector& initial_guess);
+
 }  // namespace tcm

@@ -44,6 +44,7 @@ def main() -> None:
     shutil.rmtree(ROOT / "data" / "synthetic_rev_dispersion_out", ignore_errors=True)
     shutil.rmtree(ROOT / "data" / "synthetic_rev_delaydisp", ignore_errors=True)
     shutil.rmtree(ROOT / "data" / "synthetic_rev_delaydisp_out", ignore_errors=True)
+    shutil.rmtree(ROOT / "data" / "synthetic_rev_rescue_out", ignore_errors=True)
     shutil.rmtree(ROOT / "data" / "synthetic_irr", ignore_errors=True)
     shutil.rmtree(ROOT / "data" / "synthetic_irr_out", ignore_errors=True)
 
@@ -173,6 +174,22 @@ def main() -> None:
         ],
         cwd=ROOT,
     )
+    run(
+        [
+            str(BUILD / "tcm_fit"),
+            "--input-dir",
+            "data/synthetic_rev",
+            "--output-dir",
+            "data/synthetic_rev_rescue_out",
+            "--model",
+            "rev",
+            "--mask-threshold",
+            "0.0",
+            "--rescue-refit",
+            "1",
+        ],
+        cwd=ROOT,
+    )
 
     check_mae("rev", "K1", 5e-3)
     check_mae("rev", "k4", 5e-3)
@@ -197,6 +214,12 @@ def main() -> None:
         raise SystemExit("Smoke test failed: simultaneous delay output contains non-finite values")
     if not np.isfinite(np.load(delay_disp_out / "dispersion.npy")).all():
         raise SystemExit("Smoke test failed: simultaneous dispersion output contains non-finite values")
+    rescue_out = ROOT / "data" / "synthetic_rev_rescue_out"
+    for name in ["rescue_target.npy", "rescue_applied.npy", "rescue_unresolved.npy"]:
+        if not (rescue_out / name).exists():
+            raise SystemExit(f"Smoke test failed: {name} was not written for rescue run")
+    if not np.isfinite(np.load(rescue_out / "Ki.npy")).all():
+        raise SystemExit("Smoke test failed: rescue run Ki output contains non-finite values")
 
 
 if __name__ == "__main__":

@@ -311,14 +311,13 @@ FitResult initial_result(
   return result;
 }
 
-}  // namespace
-
-FitResult fit_voxel(
+FitResult fit_voxel_impl(
     const SolverOptions& options,
     const std::vector<double>& time_minutes,
     const std::vector<double>& aif,
     const std::vector<double>& weights,
-    const std::vector<double>& tac) {
+    const std::vector<double>& tac,
+    const ParameterVector* initial_guess) {
   FitResult result;
   if (time_minutes.size() != tac.size() || aif.size() != tac.size() || weights.size() != tac.size() ||
       tac.size() < 4) {
@@ -347,7 +346,9 @@ FitResult fit_voxel(
       options.fixed_delay,
       options.fit_dispersion,
       options.fixed_dispersion);
-  if (options.use_linear_warm_start) {
+  if (initial_guess != nullptr) {
+    start = *initial_guess;
+  } else if (options.use_linear_warm_start) {
     const WarmStartResult warm = linear_warm_start(
         options.model,
         options.fit_vb,
@@ -490,6 +491,27 @@ FitResult fit_voxel(
 
   result.status = FitStatus::MaxIterations;
   return result;
+}
+
+}  // namespace
+
+FitResult fit_voxel(
+    const SolverOptions& options,
+    const std::vector<double>& time_minutes,
+    const std::vector<double>& aif,
+    const std::vector<double>& weights,
+    const std::vector<double>& tac) {
+  return fit_voxel_impl(options, time_minutes, aif, weights, tac, nullptr);
+}
+
+FitResult fit_voxel_with_initial_guess(
+    const SolverOptions& options,
+    const std::vector<double>& time_minutes,
+    const std::vector<double>& aif,
+    const std::vector<double>& weights,
+    const std::vector<double>& tac,
+    const ParameterVector& initial_guess) {
+  return fit_voxel_impl(options, time_minutes, aif, weights, tac, &initial_guess);
 }
 
 }  // namespace tcm

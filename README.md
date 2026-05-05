@@ -19,6 +19,7 @@ The current repo has three main pieces:
 - Linear least-squares warm start before nonlinear refinement
 - Optional prefit spatial Gaussian smoothing of each 3D frame
 - Optional prefit temporal median or Gaussian filtering of each voxel TAC
+- Optional targeted second-pass rescue refit for suspicious voxels
 - Threshold-based 3D masking with optional largest-component cleanup and hole filling
 - Selective masked 3D median post-filter for unstable voxels
 - Minimal `.npy` input/output for easy NumPy interop
@@ -101,6 +102,11 @@ Main options:
 - `--postfilter-status-median 0|1`
 - `--postfilter-radius N`
 - `--postfilter-min-reliable-neighbors N`
+- `--rescue-refit 0|1`
+- `--rescue-radius N`
+- `--rescue-min-reliable-neighbors N`
+- `--rescue-iterations N`
+- `--rescue-rmse-quantile Q`
 - `--threads N`
 - `--max-iter N`
 - `--weights-file PATH`
@@ -196,6 +202,32 @@ Practical guidance:
 
 The solver still reports `rmse.npy` against the original raw TACs, not the filtered TACs, so fit diagnostics remain interpretable across filtered and unfiltered runs.
 
+## Rescue refit
+
+The repo now supports an optional deterministic second-pass rescue stage:
+
+- `--rescue-refit 0|1`
+- `--rescue-radius N`
+- `--rescue-min-reliable-neighbors N`
+- `--rescue-iterations N`
+- `--rescue-rmse-quantile Q`
+
+When enabled, the solver first runs the normal voxel-wise fit, then targets suspicious voxels before the post-filter. A voxel is considered suspicious if it:
+
+- ended in solver status `0`, `2`, or `4`
+- hit one or more active parameter bounds and also had RMSE above the chosen global quantile
+- or looks like a local `k3`/`Ki` dropout relative to reliable neighbors
+
+For each targeted voxel, the rescue pass tries a small deterministic set of alternative starts, including:
+
+- the current fit nudged away from active bounds
+- the linear warm start when enabled
+- the local median of reliable neighboring voxels
+- `k3`-boosted variants of those seeds
+- and, for reversible fits, reduced-`k4` variants
+
+Each seed gets a short bounded LM/TRF polish, and the lowest-cost result is kept. This is intended as a hotfix for isolated `k3 -> 0` or `Ki -> 0` dropouts without globally smoothing the maps.
+
 ## Outputs
 
 The solver writes `.npy` volumes with shape `(D, H, W)`.
@@ -225,12 +257,17 @@ Raw nonlinear fit before post-filtering:
 - `dispersion_rawfit.npy` when written
 - `Ki_rawfit.npy`
 
+The `*_rawfit.npy` outputs are the direct first-pass nonlinear fit, before the optional rescue refit and before the post-filter.
+
 Mask and post-filter diagnostics:
 
 - `mask.npy`
 - `mask_raw.npy`
 - `mask_removed.npy`
 - `mask_filled.npy`
+- `rescue_target.npy`
+- `rescue_applied.npy`
+- `rescue_unresolved.npy`
 - `postfilter_target.npy`
 - `postfilter_applied.npy`
 - `postfilter_unresolved.npy`

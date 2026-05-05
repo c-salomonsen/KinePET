@@ -2,6 +2,7 @@
 #include "npy.hpp"
 #include "post_filter.hpp"
 #include "preprocess.hpp"
+#include "rescue_refit.hpp"
 #include "solver.hpp"
 #include "tcm_model.hpp"
 
@@ -46,6 +47,11 @@ struct CliOptions {
   bool postfilter_status_median = true;
   int postfilter_radius = 1;
   int postfilter_min_reliable_neighbors = 3;
+  bool rescue_refit = false;
+  int rescue_radius = 1;
+  int rescue_min_reliable_neighbors = 3;
+  int rescue_iterations = 12;
+  double rescue_rmse_quantile = 0.75;
   int threads = 0;
   int max_iterations = 40;
   bool use_linear_warm_start = true;
@@ -82,6 +88,11 @@ void print_usage() {
       << "  --postfilter-status-median 0|1  Apply selective 3D median filtering to status 2/4 voxels (default: 1)\n"
       << "  --postfilter-radius N  Radius for the masked 3D median window (default: 1, meaning 3x3x3)\n"
       << "  --postfilter-min-reliable-neighbors N  Minimum status 1/3 donors needed to replace a voxel (default: 3)\n"
+      << "  --rescue-refit 0|1     Run a targeted second-pass multistart refit on suspicious voxels (default: 0)\n"
+      << "  --rescue-radius N      Neighborhood radius for rescue targeting and seeding (default: 1)\n"
+      << "  --rescue-min-reliable-neighbors N  Minimum reliable neighbors needed for local rescue stats (default: 3)\n"
+      << "  --rescue-iterations N  Short LM/TRF iterations per rescue seed (default: 12)\n"
+      << "  --rescue-rmse-quantile Q  Global RMSE quantile for bound-hit rescue targeting (default: 0.75)\n"
       << "  --threads N            OpenMP threads when available\n"
       << "  --max-iter N           Maximum trust-region iterations (default: 40)\n"
       << "  --weights-file PATH    Optional .npy weights vector with length T\n"
@@ -150,6 +161,16 @@ CliOptions parse_args(int argc, char** argv) {
       options.postfilter_radius = std::stoi(require_value(i, argc, argv));
     } else if (arg == "--postfilter-min-reliable-neighbors") {
       options.postfilter_min_reliable_neighbors = std::stoi(require_value(i, argc, argv));
+    } else if (arg == "--rescue-refit") {
+      options.rescue_refit = std::stoi(require_value(i, argc, argv)) != 0;
+    } else if (arg == "--rescue-radius") {
+      options.rescue_radius = std::stoi(require_value(i, argc, argv));
+    } else if (arg == "--rescue-min-reliable-neighbors") {
+      options.rescue_min_reliable_neighbors = std::stoi(require_value(i, argc, argv));
+    } else if (arg == "--rescue-iterations") {
+      options.rescue_iterations = std::stoi(require_value(i, argc, argv));
+    } else if (arg == "--rescue-rmse-quantile") {
+      options.rescue_rmse_quantile = std::stod(require_value(i, argc, argv));
     } else if (arg == "--threads") {
       options.threads = std::stoi(require_value(i, argc, argv));
     } else if (arg == "--max-iter") {
@@ -196,6 +217,7 @@ void write_manifest(
     std::size_t total,
     std::size_t raw_mask_voxels,
     std::size_t cleaned_mask_voxels,
+    const tcm::RescueRefitResult& rescue,
     const tcm::PostFilterResult& postfilter) {
   std::ofstream out(output_dir / "run.txt");
   out << "model=" << tcm::model_name(cli.model) << "\n";
@@ -216,6 +238,17 @@ void write_manifest(
   out << "temporal_gaussian_sigma=" << cli.temporal_gaussian_sigma << "\n";
   out << "raw_mask_voxels=" << raw_mask_voxels << "\n";
   out << "cleaned_mask_voxels=" << cleaned_mask_voxels << "\n";
+  out << "rescue_refit=" << (cli.rescue_refit ? 1 : 0) << "\n";
+  out << "rescue_radius=" << cli.rescue_radius << "\n";
+  out << "rescue_min_reliable_neighbors=" << cli.rescue_min_reliable_neighbors << "\n";
+  out << "rescue_iterations=" << cli.rescue_iterations << "\n";
+  out << "rescue_rmse_quantile=" << cli.rescue_rmse_quantile << "\n";
+  out << "rescue_target_statuses=0,2,4\n";
+  out << "rescue_donor_statuses=1,3\n";
+  out << "rescue_extra_targets=bound_hit_high_rmse,k3_ki_local_dropout\n";
+  out << "rescue_targeted_voxels=" << rescue.targeted_voxels << "\n";
+  out << "rescue_applied_voxels=" << rescue.applied_voxels << "\n";
+  out << "rescue_unresolved_voxels=" << (rescue.targeted_voxels - rescue.applied_voxels) << "\n";
   out << "postfilter_status_median=" << (cli.postfilter_status_median ? 1 : 0) << "\n";
   out << "postfilter_radius=" << cli.postfilter_radius << "\n";
   out << "postfilter_min_reliable_neighbors=" << cli.postfilter_min_reliable_neighbors << "\n";
@@ -241,6 +274,18 @@ int main(int argc, char** argv) {
     }
     if (cli.postfilter_min_reliable_neighbors < 1) {
       throw std::runtime_error("--postfilter-min-reliable-neighbors must be at least 1");
+    }
+    if (cli.rescue_radius < 1) {
+      throw std::runtime_error("--rescue-radius must be at least 1");
+    }
+    if (cli.rescue_min_reliable_neighbors < 1) {
+      throw std::runtime_error("--rescue-min-reliable-neighbors must be at least 1");
+    }
+    if (cli.rescue_iterations < 1) {
+      throw std::runtime_error("--rescue-iterations must be at least 1");
+    }
+    if (cli.rescue_rmse_quantile < 0.0 || cli.rescue_rmse_quantile > 1.0) {
+      throw std::runtime_error("--rescue-rmse-quantile must be in [0, 1]");
     }
     if (cli.spatial_gaussian_radius < 1) {
       throw std::runtime_error("--spatial-gaussian-radius must be at least 1");
@@ -438,6 +483,35 @@ int main(int argc, char** argv) {
     const std::vector<double> dispersion_rawfit = dispersion_map;
     const std::vector<double> ki_rawfit = ki_map;
 
+    tcm::RescueRefitOptions rescue_options;
+    rescue_options.enable = cli.rescue_refit;
+    rescue_options.radius = cli.rescue_radius;
+    rescue_options.min_reliable_neighbors = cli.rescue_min_reliable_neighbors;
+    rescue_options.iterations = cli.rescue_iterations;
+    rescue_options.high_rmse_quantile = cli.rescue_rmse_quantile;
+    const tcm::RescueRefitResult rescue = tcm::apply_rescue_refit(
+        solver_options,
+        rescue_options,
+        mask_map,
+        depth,
+        height,
+        width,
+        time_minutes,
+        aif,
+        weights,
+        fit_image,
+        k1_map,
+        k2_map,
+        k3_map,
+        cli.model == tcm::ModelKind::Reversible2TCM ? &k4_map : nullptr,
+        vb_map,
+        (cli.fit_delay || std::abs(cli.fixed_delay) > 1e-12) ? &delay_map : nullptr,
+        (cli.fit_dispersion || std::abs(cli.fixed_dispersion) > 1e-12) ? &dispersion_map : nullptr,
+        ki_map,
+        rmse_map,
+        iter_map,
+        status_map);
+
     tcm::PostFilterOptions postfilter_options;
     postfilter_options.enable_status_median = cli.postfilter_status_median;
     postfilter_options.radius = cli.postfilter_radius;
@@ -489,6 +563,9 @@ int main(int argc, char** argv) {
     tcm::save_npy_i32(cli.output_dir / "mask.npy", map_shape, mask_map);
     tcm::save_npy_i32(cli.output_dir / "mask_removed.npy", map_shape, mask_result.removed_mask);
     tcm::save_npy_i32(cli.output_dir / "mask_filled.npy", map_shape, mask_result.filled_mask);
+    tcm::save_npy_i32(cli.output_dir / "rescue_target.npy", map_shape, rescue.target_mask);
+    tcm::save_npy_i32(cli.output_dir / "rescue_applied.npy", map_shape, rescue.applied_mask);
+    tcm::save_npy_i32(cli.output_dir / "rescue_unresolved.npy", map_shape, rescue.unresolved_mask);
     tcm::save_npy_i32(cli.output_dir / "postfilter_target.npy", map_shape, postfilter.target_mask);
     tcm::save_npy_i32(cli.output_dir / "postfilter_applied.npy", map_shape, postfilter.applied_mask);
     tcm::save_npy_i32(
@@ -504,6 +581,7 @@ int main(int argc, char** argv) {
         voxel_count,
         raw_mask_voxels,
         cleaned_mask_voxels,
+        rescue,
         postfilter);
 
     std::cout << "Finished " << fitted_voxels << " fitted voxels out of " << voxel_count << "\n";

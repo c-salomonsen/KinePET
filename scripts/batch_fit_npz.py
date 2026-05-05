@@ -49,6 +49,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--postfilter-status-median", type=int, choices=[0, 1], default=1)
     parser.add_argument("--postfilter-radius", type=int, default=1)
     parser.add_argument("--postfilter-min-reliable-neighbors", type=int, default=3)
+    parser.add_argument("--rescue-refit", type=int, choices=[0, 1], default=0)
+    parser.add_argument("--rescue-radius", type=int, default=1)
+    parser.add_argument("--rescue-min-reliable-neighbors", type=int, default=3)
+    parser.add_argument("--rescue-iterations", type=int, default=12)
+    parser.add_argument("--rescue-rmse-quantile", type=float, default=0.75)
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--max-iter", type=int, default=40)
     parser.add_argument("--skip-existing", action="store_true")
@@ -134,6 +139,16 @@ def build_solver_command(args: argparse.Namespace, input_dir: Path, output_dir: 
         str(args.postfilter_radius),
         "--postfilter-min-reliable-neighbors",
         str(args.postfilter_min_reliable_neighbors),
+        "--rescue-refit",
+        str(args.rescue_refit),
+        "--rescue-radius",
+        str(args.rescue_radius),
+        "--rescue-min-reliable-neighbors",
+        str(args.rescue_min_reliable_neighbors),
+        "--rescue-iterations",
+        str(args.rescue_iterations),
+        "--rescue-rmse-quantile",
+        str(args.rescue_rmse_quantile),
         "--threads",
         str(args.threads),
         "--max-iter",

@@ -16,6 +16,7 @@ add_executable(
   src/npy.cpp
   src/post_filter.cpp
   src/preprocess.cpp
+  src/rescue_refit.cpp
   src/solver.cpp
   src/tcm_model.cpp
 )
