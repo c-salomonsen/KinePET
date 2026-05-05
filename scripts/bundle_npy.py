@@ -101,7 +101,7 @@ class FittedSample:
         # Determine which parameters to load based on the model
         parameters = model_to_parameters[metadata.model]
 
-        parameters.append("mask_filled")  # Always include the mask
+        parameters.append("mask")  # Always include the mask
 
         # Add optional parameters if they were fitted
         if metadata.fit_vb:
@@ -119,9 +119,6 @@ class FittedSample:
                 raise FileNotFoundError(f"Expected parameter map not found: {map_path}")
 
             maps[param] = np.load(map_path)
-
-        # Rename "mask_filled" to "mask" for consistency
-        maps["mask"] = maps.pop("mask_filled")
 
         return cls(
             sample_id=str(sample_id),
