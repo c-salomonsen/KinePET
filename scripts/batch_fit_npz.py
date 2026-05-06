@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +26,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--unpacked-root", type=Path, default=Path("data/unpacked"))
     parser.add_argument("--fit-root", type=Path, default=Path("data/fits"))
     parser.add_argument("--tcm-fit", type=Path, default=Path("build/tcm_fit"))
+    parser.add_argument("--tac-fit", type=Path, default=Path("build/tcm_fit_tacs"))
+    parser.add_argument("--fit-driver", choices=["direct", "via-tacs"], default="direct")
+    parser.add_argument("--fit-image-script", type=Path, default=Path("scripts/fit_image_via_tacs.py"))
     parser.add_argument("--image-key", default="image")
     parser.add_argument("--time-key", default="time")
     parser.add_argument("--aif-key", default="aif")
@@ -49,6 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--postfilter-status-median", type=int, choices=[0, 1], default=1)
     parser.add_argument("--postfilter-radius", type=int, default=1)
     parser.add_argument("--postfilter-min-reliable-neighbors", type=int, default=3)
+    parser.add_argument("--weights-file", type=Path, default=None)
     parser.add_argument("--rescue-refit", type=int, choices=[0, 1], default=0)
     parser.add_argument("--rescue-radius", type=int, default=1)
     parser.add_argument("--rescue-min-reliable-neighbors", type=int, default=3)
@@ -94,7 +99,66 @@ def write_json(path: Path, payload: dict[str, object]) -> None:
         json.dump(payload, handle, indent=2, default=str)
 
 
-def build_solver_command(args: argparse.Namespace, input_dir: Path, output_dir: Path) -> list[str]:
+def build_fit_command(args: argparse.Namespace, input_dir: Path, output_dir: Path) -> list[str]:
+    if args.fit_driver == "via-tacs":
+        command = [
+            sys.executable,
+            str(args.fit_image_script),
+            "--input-dir",
+            str(input_dir),
+            "--output-dir",
+            str(output_dir),
+            "--tac-fit",
+            str(args.tac_fit),
+            "--model",
+            args.model,
+            "--fit-vb",
+            str(args.fit_vb),
+            "--fixed-vb",
+            str(args.fixed_vb),
+            "--fit-delay",
+            str(args.fit_delay),
+            "--fixed-delay",
+            str(args.fixed_delay),
+            "--fit-dispersion",
+            str(args.fit_dispersion),
+            "--fixed-dispersion",
+            str(args.fixed_dispersion),
+            "--mask-threshold",
+            str(args.mask_threshold),
+            "--mask-keep-largest-component",
+            str(args.mask_keep_largest_component),
+            "--mask-fill-holes",
+            str(args.mask_fill_holes),
+            "--spatial-gaussian-prefilter",
+            str(args.spatial_gaussian_prefilter),
+            "--spatial-gaussian-radius",
+            str(args.spatial_gaussian_radius),
+            "--spatial-gaussian-sigma",
+            str(args.spatial_gaussian_sigma),
+            "--temporal-filter",
+            args.temporal_filter,
+            "--temporal-filter-radius",
+            str(args.temporal_filter_radius),
+            "--temporal-gaussian-sigma",
+            str(args.temporal_gaussian_sigma),
+            "--postfilter-status-median",
+            str(args.postfilter_status_median),
+            "--postfilter-radius",
+            str(args.postfilter_radius),
+            "--postfilter-min-reliable-neighbors",
+            str(args.postfilter_min_reliable_neighbors),
+            "--threads",
+            str(args.threads),
+            "--max-iter",
+            str(args.max_iter),
+        ]
+        if args.weights_file:
+            command.extend(["--weights-file", str(args.weights_file)])
+        if args.no_linear_warm_start:
+            command.append("--no-linear-warm-start")
+        return command
+
     command = [
         str(args.tcm_fit),
         "--input-dir",
@@ -154,6 +218,8 @@ def build_solver_command(args: argparse.Namespace, input_dir: Path, output_dir: 
         "--max-iter",
         str(args.max_iter),
     ]
+    if args.weights_file:
+        command.extend(["--weights-file", str(args.weights_file)])
     if args.no_linear_warm_start:
         command.append("--no-linear-warm-start")
     return command
@@ -164,8 +230,18 @@ def main() -> None:
     npz_paths = discover_npz(args.npz_glob)
     if not npz_paths:
         raise SystemExit(f"No NPZ files matched: {args.npz_glob}")
-    if not args.tcm_fit.exists():
+    if args.fit_driver == "direct" and not args.tcm_fit.exists():
         raise SystemExit(f"Missing solver binary: {args.tcm_fit}")
+    if args.fit_driver == "via-tacs":
+        if not args.tac_fit.exists():
+            raise SystemExit(f"Missing TAC solver binary: {args.tac_fit}")
+        if not args.fit_image_script.exists():
+            raise SystemExit(f"Missing image-via-TAC script: {args.fit_image_script}")
+        if args.rescue_refit or args.rescue_radius != 1 or args.rescue_min_reliable_neighbors != 3:
+            raise SystemExit(
+                "The via-tacs driver does not implement the C++ rescue-refit stage. "
+                "Use --fit-driver direct for rescue-refit experiments."
+            )
 
     args.unpacked_root.mkdir(parents=True, exist_ok=True)
     args.fit_root.mkdir(parents=True, exist_ok=True)
@@ -213,7 +289,7 @@ def main() -> None:
             print(f"[{sample_name}] skipping fit because outputs already exist")
         else:
             fit_dir.mkdir(parents=True, exist_ok=True)
-            solver_command = build_solver_command(args, unpack_dir, fit_dir)
+            solver_command = build_fit_command(args, unpack_dir, fit_dir)
             subprocess.run(solver_command, check=True)
             write_json(
                 fit_dir / "input_metadata.json",
