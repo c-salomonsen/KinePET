@@ -1,58 +1,51 @@
-# Tissue Compartment Model TRF Solver
+# KinePET
 
-Standalone C++ solver and Python tooling for voxel-wise kinetic modeling of dynamic PET with irreversible and reversible two-tissue compartment models.
+This repo now ships one fitting core:
 
-The current repo has three main pieces:
+- a TAC-based bounded nonlinear solver for dynamic PET two-tissue compartment models
 
-- a custom C++ nonlinear fitter with OpenMP parallelism, available in both image-oriented and TAC-batch forms
-- Python helpers for unpacking raw `.npz` data and batch-running the solver
-- analysis/validation tools for comparing the C++ fits against PyPET and `lls`
+Supported models:
 
-## What is implemented
+- `irr`: irreversible 2TCM
+- `rev`: reversible 2TCM
 
-- Irreversible 2TCM (`irr`)
-- Reversible 2TCM (`rev`)
-- Optional fitted or fixed blood volume fraction `vB`
-- Optional fitted or fixed AIF delay `Delta`
-- Optional fitted or fixed AIF dispersion `tau`
-- Bounded nonlinear optimization in C++
-- Linear least-squares warm start before nonlinear refinement
-- Dedicated TAC-batch solver for flattened curves with shared or per-TAC AIFs
-- Optional prefit spatial Gaussian smoothing of each 3D frame
-- Optional prefit temporal median or Gaussian filtering of each voxel TAC
-- Optional targeted second-pass rescue refit for suspicious voxels
-- Threshold-based 3D masking with optional largest-component cleanup and hole filling
-- Selective masked 3D median post-filter for unstable voxels
-- Minimal `.npy` input/output for easy NumPy interop
-- Napari-based fit visualization
-- VOI-level comparison export across `cpp`, `pypet`, and `lls`
+The solver is available through:
 
-## Repo layout
+- a standalone C++ CLI: `tcm_fit_tacs`
+- a Python package with a nanobind extension: `kinepet`
 
-- `src/`: core C++ solver, forward models, mask cleanup, post-filter, `.npy` I/O
-- `scripts/unpack_npz.py`: convert one packed subject from `.npz` to solver-ready `.npy`
-- `scripts/batch_fit_npz.py`: sequential batch runner over many subjects
-- `scripts/fit_image_via_tacs.py`: Python image pipeline that preprocesses, flattens, calls `tcm_fit_tacs`, and rebuilds maps
-- `scripts/kinetics.py`: NumPy forward models used by synthetic-data and CSV conversion helpers
-- `scripts/make_curves_from_csv.py`: convert simulated CSV tables into TAC-batch directories
-- `scripts/view_param_maps_napari.py`: interactive viewer for fitted maps and diagnostics
-- `scripts/extract_voi_reference_fits.py`: VOI-level comparison export
-- `scripts/build_error_analysis_notebook.py`: populate the error-analysis notebook
-- `tests/smoke_test.py`: synthetic regression check
+The old image-oriented fitting pipeline has been removed on purpose. Image preprocessing, masking, postprocessing, and map reconstruction are expected to live in Python outside the core solver.
 
-## Image input format
+## What is in the repo
 
-The C++ solver reads three files from an input directory:
+- `src/solver.cpp`, `src/solver.hpp`
+  - bounded trust-region / LM-style nonlinear solver
+- `src/tcm_model.cpp`, `src/tcm_model.hpp`
+  - model equations, bounds, parameter packing, `Ki`
+- `src/lls.cpp`, `src/lls.hpp`
+  - linear least-squares warm start
+- `src/tac_batch.cpp`, `src/tac_batch.hpp`
+  - reusable TAC-batch fitting core shared by the CLI and Python binding
+- `src/tac_fit_main.cpp`
+  - TAC-batch CLI
+- `src/python_bindings.cpp`
+  - nanobind extension
+- `kinepet/__init__.py`
+  - user-facing Python API
+- `scripts/make_curves_from_csv.py`
+  - convert simulated CSV tables into TAC-batch directories
+- `scripts/make_synthetic_dataset.py`
+  - generate synthetic TAC batches for testing
+- `scripts/extract_voi_reference_fits.py`
+  - compare VOI TAC fits across `cpp`, `pypet`, and `lls`
+- `tests/test_bindings.py`
+  - pytest coverage for the Python binding
 
-- `image.npy`: shape `(T, D, H, W)`
-- `time.npy`: shape `(T,)`
-- `aif.npy`: shape `(T,)`
+## Input format
 
-The code treats time as minutes. If values look like seconds (`max(time) > 60`), both the C++ solver and the VOI export path normalize to minutes automatically.
+The solver works on flattened TAC batches.
 
-## TAC batch input format
-
-The atomic TAC solver reads:
+Required files:
 
 - `tacs.npy`: shape `(T, N)`
 - `time.npy`: shape `(T,)`
@@ -60,77 +53,99 @@ The atomic TAC solver reads:
 
 Interpretation of `aif.npy`:
 
-- `(T,)` or `(T,1)`: one shared AIF for all TACs
-- `(T,N)`: one AIF per TAC
+- `(T,)` or `(T, 1)`: one shared AIF for all TACs
+- `(T, N)`: one AIF per TAC
 
-This is the recommended format for simulated curve tables or for image workflows where you want to do preprocessing in Python first, flatten to TACs, then run the bounded NLS.
+Optional:
 
-## Unpack one packed subject
+- `weights.npy`: shape `(T,)`, `(T, 1)`, or `(T, N)`
+
+Time is interpreted as minutes. If the maximum time value is greater than `60`, the solver assumes the input is in seconds and converts to minutes internally.
+
+## Build and install
+
+For local development:
 
 ```bash
-python3 scripts/unpack_npz.py sample.npz input_dir
+uv sync --group dev
 ```
 
-Default keys expected in the NPZ bundle:
+This installs:
 
-- `image`
-- `time`
-- `aif`
-- optional `sample_id`
-- optional `group`
+- the Python package in editable mode
+- `pytest`
+- `nanobind`
+- `scikit-build-core`
 
-The unpacked directory contains:
-
-- `image.npy`
-- `time.npy`
-- `aif.npy`
-- optional `metadata.json`
-
-## Build
+To build the standalone CLI and the extension through CMake:
 
 ```bash
-cmake -S . -B build
+cmake -S . -B build -DPython_EXECUTABLE=$(uv run python -c 'import sys; print(sys.executable)')
 cmake --build build
 ```
 
-If OpenMP is available, CMake enables it automatically. On Apple Clang you may need an explicit OpenMP toolchain; on GCC/Intel HPC toolchains it is usually picked up directly.
+If you only need the Python package, `uv sync --group dev` is enough.
 
-## Image CLI
+## Python API
 
-```bash
-./build/tcm_fit --input-dir INPUT --output-dir OUTPUT --model rev|irr [options]
+```python
+import numpy as np
+import kinepet
+
+fit = kinepet.fit_tacs(
+    tacs,
+    time,
+    aif,
+    model="rev",
+    fit_vb=True,
+    threads=8,
+)
+
+print(fit.K1.shape)      # (N,)
+print(fit.status.shape)  # (N,)
 ```
 
-This binary owns the original image-oriented workflow:
+Single-TAC fitting:
 
-- reads `image.npy`, `time.npy`, and `aif.npy`
-- builds and optionally cleans a mask
-- can do prefit smoothing
-- can run rescue refit
-- can run the selective 3D median post-filter
-- writes `(D, H, W)` maps and diagnostic overlays
+```python
+fit = kinepet.fit_one_tac(
+    tac,
+    time,
+    aif,
+    model="irr",
+    fit_vb=True,
+)
+```
 
-Image-only options:
+Forward evaluation:
 
-- `--mask-threshold VALUE`
-- `--mask-keep-largest-component 0|1`
-- `--mask-fill-holes 0|1`
-- `--spatial-gaussian-prefilter 0|1`
-- `--spatial-gaussian-radius N`
-- `--spatial-gaussian-sigma VALUE`
-- `--temporal-filter none|median|gaussian`
-- `--temporal-filter-radius N`
-- `--temporal-gaussian-sigma VALUE`
-- `--postfilter-status-median 0|1`
-- `--postfilter-radius N`
-- `--postfilter-min-reliable-neighbors N`
-- `--rescue-refit 0|1`
-- `--rescue-radius N`
-- `--rescue-min-reliable-neighbors N`
-- `--rescue-iterations N`
-- `--rescue-rmse-quantile Q`
+```python
+pred = kinepet.evaluate_model(
+    time,
+    aif,
+    model="rev",
+    K1=0.12,
+    k2=0.16,
+    k3=0.09,
+    k4=0.04,
+    vB=0.05,
+)
+```
 
-Shared fitting options supported by both binaries:
+Useful helpers:
+
+- `kinepet.default_bounds(...)`
+- `kinepet.default_frame_weights(time)`
+
+## CLI
+
+Build first, then run:
+
+```bash
+./build/tcm_fit_tacs --input-dir INPUT --output-dir OUTPUT --model rev|irr [options]
+```
+
+Supported options:
 
 - `--fit-vb 0|1`
 - `--fixed-vb VALUE`
@@ -143,192 +158,12 @@ Shared fitting options supported by both binaries:
 - `--weights-file PATH`
 - `--no-linear-warm-start`
 
-## TAC CLI
-
-```bash
-./build/tcm_fit_tacs --input-dir INPUT --output-dir OUTPUT --model rev|irr [options]
-```
-
-The TAC binary only does the atomic curve fitting step. It does not do mask cleanup, spatial or temporal image preprocessing, rescue refit, or neighborhood post-filtering.
-
-Supported options are exactly the shared fitting options listed above.
-
-## Python image wrapper
-
-```bash
-.venv/bin/python scripts/fit_image_via_tacs.py \
-  --input-dir INPUT \
-  --output-dir OUTPUT \
-  --tac-fit build/tcm_fit_tacs \
-  --model rev|irr [options]
-```
-
-This wrapper is the bridge for image workflows where you want preprocessing logic in Python but still want the bounded C++ NLS on flattened TACs.
-
-It currently:
-
-- reads standard image input `image.npy`, `time.npy`, `aif.npy`
-- ports mask cleanup to Python
-- ports spatial and temporal prefit smoothing to Python
-- flattens masked voxels to `tacs.npy`
-- calls `tcm_fit_tacs`
-- rebuilds `(D, H, W)` maps
-- ports the selective median post-filter to Python
-
-It intentionally does not port the rescue-refit stage yet. When you need rescue refit, use the direct `tcm_fit` image binary.
-
-Reversible fit with fitted `vB`:
-
-```bash
-./build/tcm_fit \
-  --input-dir data/unpacked/AA1 \
-  --output-dir data/fits_rev/AA1 \
-  --model rev \
-  --fit-vb 1 \
-  --mask-threshold 0.2 \
-  --mask-keep-largest-component 1 \
-  --mask-fill-holes 1 \
-  --postfilter-status-median 1 \
-  --postfilter-radius 1 \
-  --postfilter-min-reliable-neighbors 3 \
-  --threads 8
-```
-
-Irreversible fit with fixed `vB`:
-
-```bash
-./build/tcm_fit \
-  --input-dir data/unpacked/AA1 \
-  --output-dir data/fits_irr/AA1 \
-  --model irr \
-  --fit-vb 0 \
-  --fixed-vb 0.05 \
-  --mask-threshold 0.2 \
-  --threads 8
-```
-
-Image workflow through the TAC binary:
-
-```bash
-.venv/bin/python scripts/fit_image_via_tacs.py \
-  --input-dir data/unpacked/AA1 \
-  --output-dir data/fits_rev/AA1 \
-  --tac-fit build/tcm_fit_tacs \
-  --model rev \
-  --fit-vb 1 \
-  --mask-threshold 0.2 \
-  --threads 8
-```
-
-Direct TAC-batch fit with one AIF per curve:
-
-```bash
-./build/tcm_fit_tacs \
-  --input-dir data/simulated-tac-batches/generated_samples_4k_1000_restr \
-  --output-dir data/simulated-tac-fits/generated_samples_4k_1000_restr \
-  --model rev \
-  --fit-vb 1 \
-  --threads 8
-```
-
-## Current default bounds
-
-The active parameter bounds currently come from `src/tcm_model.cpp`.
-
-Base bounds:
-
-- `K1`: `[0, 10]`
-- `k2`: `[0, 10]`
-- `k3`: `[0, 5]`
-- `k4`: `[0, 1]` when used
-- `vB`: `[0, 1]` when fitted
-- `delay`: `[-0.2, 0.2]` minutes when fitted
-- `dispersion`: `[0, 0.1]` minutes when fitted
-
-When `--fit-vb 0`, `vB` is fixed to `--fixed-vb`.
-When `--fit-delay 0`, delay is fixed to `--fixed-delay`.
-When `--fit-dispersion 0`, dispersion is fixed to `--fixed-dispersion`.
-
-If you change the C++ bounds, also update the Napari viewer logic in `scripts/view_param_maps_napari.py`, which derives bound-hit overlays from a Python copy of the bound assumptions.
-
-## Weighting and warm start
-
-If `--weights-file` is not given, the solver uses default frame weights derived from the time grid.
-
-By default, the nonlinear solver also uses the internal linear least-squares approximation as a warm start. You can disable that with:
-
-```bash
---no-linear-warm-start
-```
-
-For delay/dispersion fits, the warm start still initializes the kinetic parameters from the linear model, but delay and dispersion start from conservative defaults. In practice, fitting delay alone or dispersion alone is more stable than fitting both simultaneously.
-
-## Optional prefit smoothing
-
-The repo now supports two optional preprocessing steps that are applied only to the TACs used for fitting. Masking still uses the original image.
-
-Spatial:
-
-- `--spatial-gaussian-prefilter 0|1`
-- `--spatial-gaussian-radius N`
-- `--spatial-gaussian-sigma VALUE`
-
-This applies a separable 3D Gaussian filter to each dynamic frame before fitting. The original motivation is to reduce isolated voxel-level spikes that create implausible parameter-map speckles.
-
-Temporal:
-
-- `--temporal-filter none|median|gaussian`
-- `--temporal-filter-radius N`
-- `--temporal-gaussian-sigma VALUE`
-
-This applies a 1D filter along the time axis independently at each voxel before fitting.
-
-Practical guidance:
-
-- spatial Gaussian is the safer first thing to try for isolated map speckles
-- temporal median is good for occasional frame outliers
-- temporal Gaussian is smoother but more likely to blur the fast early peak
-
-The solver still reports `rmse.npy` against the original raw TACs, not the filtered TACs, so fit diagnostics remain interpretable across filtered and unfiltered runs.
-
-## Rescue refit
-
-The repo now supports an optional deterministic second-pass rescue stage:
-
-- `--rescue-refit 0|1`
-- `--rescue-radius N`
-- `--rescue-min-reliable-neighbors N`
-- `--rescue-iterations N`
-- `--rescue-rmse-quantile Q`
-
-When enabled, the solver first runs the normal voxel-wise fit, then targets suspicious voxels before the post-filter. A voxel is considered suspicious if it:
-
-- ended in solver status `0`, `2`, or `4`
-- hit one or more active parameter bounds and also had RMSE above the chosen global quantile
-- or looks like a local `k3`/`Ki` dropout relative to reliable neighbors
-
-For each targeted voxel, the rescue pass tries a small deterministic set of alternative starts, including:
-
-- the current fit nudged away from active bounds
-- the linear warm start when enabled
-- the local median of reliable neighboring voxels
-- `k3`-boosted variants of those seeds
-- and, for reversible fits, reduced-`k4` variants
-
-Each seed gets a short bounded LM/TRF polish, and the lowest-cost result is kept. This is intended as a hotfix for isolated `k3 -> 0` or `Ki -> 0` dropouts without globally smoothing the maps.
-
-This rescue stage currently exists in the image-oriented `tcm_fit` binary. The atomic `tcm_fit_tacs` binary intentionally does not include neighborhood-aware rescue logic, and `scripts/fit_image_via_tacs.py` currently leaves the rescue overlays as zero maps.
-
-## Outputs
-
-The solver writes `.npy` volumes with shape `(D, H, W)`.
-
-Main fitted maps:
+Outputs are flat `(N,)` arrays:
 
 - `K1.npy`
 - `k2.npy`
 - `k3.npy`
-- `k4.npy` for reversible fits
+- `k4.npy` for `rev`
 - `vB.npy`
 - `delay.npy` when fitted or fixed to a nonzero value
 - `dispersion.npy` when fitted or fixed to a nonzero value
@@ -336,274 +171,70 @@ Main fitted maps:
 - `rmse.npy`
 - `iterations.npy`
 - `status.npy`
-
-Raw nonlinear fit before post-filtering:
-
-- `K1_rawfit.npy`
-- `k2_rawfit.npy`
-- `k3_rawfit.npy`
-- `k4_rawfit.npy` for reversible fits
-- `vB_rawfit.npy`
-- `delay_rawfit.npy` when written
-- `dispersion_rawfit.npy` when written
-- `Ki_rawfit.npy`
-
-The `*_rawfit.npy` outputs are the direct first-pass nonlinear fit, before the optional rescue refit and before the post-filter.
-
-The atomic TAC binary instead writes flat `(N,)` arrays:
-
-- `K1.npy`, `k2.npy`, `k3.npy`, optional `k4.npy`
-- `vB.npy`, optional `delay.npy`, optional `dispersion.npy`
-- `Ki.npy`, `rmse.npy`, `iterations.npy`, `status.npy`
-
-No rawfit, rescue, or postfilter overlays are produced by `tcm_fit_tacs` itself.
-
-Mask and post-filter diagnostics:
-
-- `mask.npy`
-- `mask_raw.npy`
-- `mask_removed.npy`
-- `mask_filled.npy`
-- `rescue_target.npy`
-- `rescue_applied.npy`
-- `rescue_unresolved.npy`
-- `postfilter_target.npy`
-- `postfilter_applied.npy`
-- `postfilter_unresolved.npy`
-
-Run metadata:
-
 - `run.txt`
 
-If post-filtering is enabled, the main parameter maps are the post-filtered versions. The `*_rawfit.npy` files preserve the direct voxel-wise nonlinear result.
+## Current default bounds
 
-## `status.npy` semantics
+The source of truth is `src/tcm_model.cpp`.
 
-Internal fit statuses are defined in `src/solver.hpp`, but the saved `status.npy` has an important practical detail: voxels outside the mask and some unwritten error cases remain `0`.
+Current defaults:
 
-In practice:
+- `K1`: `[0, 10]`
+- `k2`: `[0, 10]`
+- `k3`: `[0, 5]`
+- `k4`: `[0, 1]` when active
+- `vB`: `[0, 1]` when fitted
+- `delay`: `[-0.2, 0.2]` minutes when fitted
+- `dispersion`: `[0, 0.1]` minutes when fitted
 
-- `0`: outside mask, failed fit, or other unwritten/non-success case
-- `1`: gradient convergence
-- `2`: step convergence
-- `3`: cost convergence
-- `4`: hit iteration limit
+## Scripts
 
-`status = 2` means the proposed update became very small. That usually means the solver stalled on a flat region or near a bound, not necessarily that the voxel is a high-confidence fit.
-
-## Mask cleanup
-
-Masking starts from a simple TAC threshold:
-
-- include voxel if `max(TAC) >= mask_threshold`
-
-Optional cleanup then:
-
-- keeps only the largest connected 3D component
-- fills enclosed holes
-
-These steps are controlled by:
-
-- `--mask-keep-largest-component`
-- `--mask-fill-holes`
-
-This is aimed at whole-subject small-animal PET volumes where random speckles outside the body should be removed.
-
-## Selective median post-filter
-
-The post-filter is intentionally narrow. It is a stabilization aid, not a substitute for model identifiability.
-
-Rules:
-
-- only voxels inside `mask.npy` are considered
-- only voxels with `status` `2` or `4` are targets
-- only voxels with `status` `1` or `3` can donate values
-- default neighborhood radius is `1`, meaning a masked `3x3x3` window
-- at least `3` reliable donor voxels are required
-- `K1`, `k2`, `k3`, `k4` when present, and `vB` are filtered independently
-- `Ki` is recomputed from the filtered kinetic parameters instead of filtered directly
-
-The diagnostic masks mean:
-
-- `postfilter_target.npy`: voxels marked for possible replacement
-- `postfilter_applied.npy`: target voxels that were actually replaced
-- `postfilter_unresolved.npy`: targets that did not have enough reliable neighbors
-
-If delay and/or dispersion maps are present, the selective post-filter median-stabilizes those maps too for the targeted voxels.
-
-## Batch pipeline
-
-A typical layout is:
-
-- `data/raw/<sample>.npz`
-- `data/unpacked/<sample_id>/`
-- `data/fits_rev/<sample_id>/` or `data/fits_irr/<sample_id>/`
-
-Run the sequential batch pipeline like this:
+Convert simulated CSV tables to TAC batches:
 
 ```bash
-python3 scripts/batch_fit_npz.py \
-  --npz-glob 'data/raw/*.npz' \
-  --unpacked-root data/unpacked \
-  --fit-root data/fits_rev \
-  --tcm-fit build/tcm_fit \
-  --model rev \
-  --fit-vb 1 \
-  --mask-threshold 0.2 \
-  --threads 8 \
-  --skip-existing
+python3 scripts/make_curves_from_csv.py \
+  --csv-glob 'data/simulated-csv/*.csv' \
+  --output-root data/simulated-tac-batches \
+  --overwrite
 ```
 
-To route the image workflow through the TAC binary instead:
+Generate a synthetic TAC batch:
 
 ```bash
-python3 scripts/batch_fit_npz.py \
-  --npz-glob 'data/raw/*.npz' \
-  --unpacked-root data/unpacked \
-  --fit-root data/fits_rev \
-  --fit-driver via-tacs \
-  --tac-fit build/tcm_fit_tacs \
-  --model rev \
-  --fit-vb 1 \
-  --mask-threshold 0.2 \
-  --threads 8
+python3 scripts/make_synthetic_dataset.py data/synthetic_tacs --model rev --num-tacs 64
 ```
 
-Useful batch options:
-
-- `--delete-unpacked-after-fit`
-- `--fit-driver direct|via-tacs`
-- `--tac-fit build/tcm_fit_tacs`
-- `--fit-image-script scripts/fit_image_via_tacs.py`
-- `--weights-file PATH`
-- `--no-linear-warm-start`
-- `--fit-delay`, `--fixed-delay`
-- `--fit-dispersion`, `--fixed-dispersion`
-- `--spatial-gaussian-prefilter`, `--spatial-gaussian-radius`, `--spatial-gaussian-sigma`
-- `--temporal-filter`, `--temporal-filter-radius`, `--temporal-gaussian-sigma`
-- image-only rescue flags are supported only with `--fit-driver direct`
-
-The batch runner writes:
-
-- one unpacked directory per sample
-- one fit directory per sample
-- `batch_manifest.csv` in the fit root
-
-## Napari viewer
-
-Open one fitted subject with:
+Run VOI comparison export:
 
 ```bash
-uv run python scripts/view_param_maps_napari.py \
-  --input-dir data/unpacked/AA1 \
-  --fit-dir data/fits_rev/AA1
+uv run python scripts/extract_voi_reference_fits.py --threads 1
 ```
 
-Optional initial voxel:
+That script uses:
+
+- `time` and `aif` from the raw NPZ files
+- `Brain` and `Myocardium` from `VOI_A`
+- `kinepet` for the TAC-based solver path
+- the PyPET reference implementation
+- the installed `lls` package
+
+## Tests
+
+Run:
 
 ```bash
---initial-voxel 40 24 24
+uv run pytest -q
 ```
 
-The viewer shows:
+Current pytest coverage checks:
 
-- the 4D dynamic PET volume
-- summary images such as peak, mean, AUC, and time-to-peak
-- fitted parameter maps
-- optional `delay` and `dispersion` maps
-- fit diagnostics like RMSE and iteration count
-- mask and post-filter overlays
-- bound-hit overlays derived from the current parameter bounds
-- a voxel inspector with measured TAC, predicted TAC, scaled AIF, and residuals
+- irreversible batch fitting with per-TAC AIFs
+- reversible single-TAC fitting through the Python binding
+- optional helper APIs like `default_bounds`
+- input validation on invalid AIF shapes
 
-It also supports thresholding the currently selected image layer using `relative_rmse_auc`, which is useful for hiding noisy background voxels.
+## Notes
 
-## Synthetic validation
-
-Run the smoke test:
-
-```bash
-python3 tests/smoke_test.py
-```
-
-This test:
-
-- regenerates synthetic reversible and irreversible datasets
-- regenerates dedicated synthetic delay-only and dispersion-only datasets
-- rebuilds the solver
-- runs both model variants
-- checks mean absolute error for a subset of recovered parameters
-- checks delay recovery in a delay-only fit
-- checks dispersion recovery in a dispersion-only fit
-- checks that simultaneous delay+dispersion output maps are produced and finite
-
-It is the minimum regression check after solver changes.
-
-## VOI-level comparison export
-
-The repo includes a comparison pipeline for expert-defined ROI averages stored in VOI pickle files.
-
-Current script:
-
-```bash
-.venv/bin/python scripts/extract_voi_reference_fits.py --threads 1
-```
-
-What it does:
-
-- matches raw NPZ subjects to VOI pickle files by sample id
-- takes `time` and `aif` from the raw NPZ
-- takes `Brain` and `Myocardium` from `loaded["VOI_A"]`
-- checks that `VOI_t` matches the NPZ time vector
-- exports fits from:
-  - the C++ solver (`method=cpp`)
-  - the reference PyPET implementation (`method=pypet`)
-  - the installed `lls` package (`method=lls`)
-
-Outputs:
-
-- `output/validation/voi_reference/voi_reference_fits.csv`
-- `output/validation/voi_reference/voi_reference_curves.npz`
-- `output/validation/voi_reference/voi_reference_skipped.csv`
-- `output/validation/voi_reference/metadata.json`
-
-Important: the exported `error_value` is not numerically comparable across methods without checking `error_kind`:
-
-- `cpp`: `rmse_native_grid`
-- `pypet`: `rss_interp_grid`
-- `lls`: `mse_interp_grid`
-
-## Why this design
-
-The core optimization problem is not one hard fit. It is a very large number of tiny fits. That changes what matters:
-
-- a custom small-problem solver is cheaper than calling a large generic optimizer millions of times
-- hard bounds matter because unbounded LM can drift into non-physical regions
-- the linear solver is still useful even when biased under noise because it gives a fast warm start
-- OpenMP is the natural first parallel layer because the work is embarrassingly parallel across voxels
-
-## Current limitations
-
-- The forward model predicts point samples at the provided times. If your PET data are frame averages, frame-integrated modeling is the next important upgrade.
-- The nonlinear solver is bounded and trust-region-like, but it is not a line-by-line reimplementation of SciPy’s reflective TRF internals.
-- MPI is not wired into the codebase yet.
-- Packed `.npz` I/O is handled in Python, not in C++.
-- The Python image-via-TAC wrapper currently ports preprocessing and selective median post-filtering, but not the neighborhood-aware rescue refit.
-- The post-filter improves map stability but should not be mistaken for a cure for true identifiability problems.
-
-## Recommended workflow after code changes
-
-If you change solver logic, output files, bounds, or status semantics:
-
-1. run `python3 tests/smoke_test.py`
-2. fit at least one real subject
-3. open that subject in Napari if any viewer-facing output changed
-4. rerun `scripts/extract_voi_reference_fits.py` if comparison/export semantics changed
-
-## Next likely upgrades
-
-1. Frame-average forward modeling.
-2. Better regularization or restart logic for simultaneous delay+dispersion fits.
-3. MPI over subjects or voxel blocks.
-4. Smarter restart logic for poor fits.
-5. More systematic comparison notebooks for `cpp` vs `pypet` vs `lls`.
+- The nonlinear solver is custom C++, not SciPy TRF copied line-for-line.
+- The model is evaluated on the native non-uniform time grid with piecewise-linear AIF handling.
+- Delay and dispersion support are available, but simultaneous estimation is still less stable than the core kinetic parameters on difficult curves.

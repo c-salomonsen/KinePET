@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import argparse
-import json
-import shutil
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 
-from scripts.kinetics import Irreversible2TCMVB, Reversible2TCMVB
+from kinepet import fit_tacs
+
+try:
+    from scripts.kinetics import Irreversible2TCMVB, Reversible2TCMVB
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from kinetics import Irreversible2TCMVB, Reversible2TCMVB
+
+
+ModelName = Literal["irr", "rev"]
 
 
 TIME_PROTOCOL = ((1, 30), (24, 5), (9, 20), (8, 300))
@@ -73,33 +80,7 @@ def generate_time(frame_protocol: tuple[tuple[int, int], ...], dt_s: float) -> t
     return t_fine_min, t_fine_s, time_min
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Convert simulated CSV parameter tables into TAC batch directories "
-            "for the tcm_fit_tacs binary."
-        )
-    )
-    parser.add_argument("--csv-glob", default="data/simulated-csv/*.csv")
-    parser.add_argument("--output-root", type=Path, default=Path("data/simulated-tac-batches"))
-    parser.add_argument("--dt-s", type=float, default=DT_S)
-    parser.add_argument("--tinj-s", type=float, default=TINJ_S)
-    parser.add_argument("--overwrite", action="store_true")
-    return parser.parse_args()
-
-
-def discover_csvs(pattern: str) -> list[Path]:
-    import glob
-
-    return sorted(Path(path) for path in glob.glob(pattern))
-
-
-def convert_csv(csv_path: Path, output_root: Path, dt_s: float, tinj_s: float, overwrite: bool) -> Path:
-    df = pd.read_csv(csv_path, sep=";")
-    if df.empty:
-        raise ValueError(f"No rows found in {csv_path}")
-
-    model = "rev" if "k4" in df.columns else "irr"
+def generate_curves(df: pd.DataFrame, dt_s: float, tinj_s: float, model: ModelName) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     compartment_model = Reversible2TCMVB() if model == "rev" else Irreversible2TCMVB()
 
     t_fine_min, t_fine_s, time_min = generate_time(TIME_PROTOCOL, dt_s)
@@ -152,46 +133,51 @@ def convert_csv(csv_path: Path, output_root: Path, dt_s: float, tinj_s: float, o
                 vB=np.array([float(row.vB)]),
             ).reshape(-1)
 
-    out_dir = output_root / csv_path.stem
-    if out_dir.exists():
-        if overwrite:
-            shutil.rmtree(out_dir)
-        else:
-            raise FileExistsError(f"Output directory already exists: {out_dir}")
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    np.save(out_dir / "tacs.npy", tacs)
-    np.save(out_dir / "aif.npy", aif)
-    np.save(out_dir / "time.npy", time_min)
-    np.save(out_dir / "sample_ids.npy", df["sample"].astype(str).to_numpy())
-    df.to_csv(out_dir / "truth.csv", index=False)
-
-    metadata = {
-        "source_csv": str(csv_path.resolve()),
-        "model": model,
-        "num_tacs": n,
-        "num_timepoints": T,
-        "time_protocol": [list(pair) for pair in TIME_PROTOCOL],
-        "dt_s": dt_s,
-        "tinj_s": tinj_s,
-        "aif_mode": "per_tac",
-    }
-    with (out_dir / "metadata.json").open("w", encoding="utf-8") as handle:
-        json.dump(metadata, handle, indent=2)
-    return out_dir
+    return tacs, aif, time_min
 
 
 def main() -> None:
-    args = parse_args()
-    csv_paths = discover_csvs(args.csv_glob)
-    if not csv_paths:
-        raise SystemExit(f"No CSV files matched: {args.csv_glob}")
+    parser = argparse.ArgumentParser(description="Generate TACs from CSV and fit them")
+    parser.add_argument("INPUT_FILE", type=Path, help="Path to the input CSV file")
+    parser.add_argument("OUTPUT_FILE", type=Path, help="Path to the output CSV file")
+    parser.add_argument("--model", choices=["irr", "rev"], default="rev", help="Compartment model to use for fitting")
+    parser.add_argument("--fit-vb", action="store_true", help="Whether to fit vB or keep it fixed")
+    parser.add_argument("--fixed-vb", type=float, default=0.05, help="Value to use for fixed vB (ignored if --fit-vb is set)")
+    parser.add_argument("--threads", type=int, default=0, help="Number of threads to use for fitting (default: all available)")
+    parser.add_argument("--max-iterations", type=int, default=40, help="Maximum number of iterations for fitting")
+    parser.add_argument("--csv-sep", type=str, default=";", help="Separator used in the input CSV file (default: ';')")
+    args = parser.parse_args()
 
-    args.output_root.mkdir(parents=True, exist_ok=True)
-    for csv_path in csv_paths:
-        out_dir = convert_csv(csv_path, args.output_root, args.dt_s, args.tinj_s, args.overwrite)
-        print(f"Wrote {out_dir}")
+    df = pd.read_csv(args.INPUT_FILE, sep=args.csv_sep)
 
+    model: ModelName = args.model
+
+    tacs, aifs, times = generate_curves(df, dt_s=DT_S, tinj_s=TINJ_S, model=model)
+
+    fit = fit_tacs(
+        tacs,
+        times,
+        aifs,
+        model=model,
+        fit_vb=args.fit_vb,
+        fixed_vb=args.fixed_vb,
+        threads=args.threads,
+        max_iterations=args.max_iterations,
+    )
+
+    out_df = df.copy()
+    out_df["K1_fit"] = fit.K1
+    out_df["k2_fit"] = fit.k2
+    out_df["k3_fit"] = fit.k3
+    if model == "rev":
+        out_df["k4_fit"] = fit.k4
+    out_df["vB_fit"] = fit.vB
+    out_df["Ki_fit"] = fit.Ki
+    out_df["rmse_fit"] = fit.rmse
+    out_df["iterations_fit"] = fit.iterations
+    out_df["status_fit"] = fit.status
+
+    out_df.to_csv(args.OUTPUT_FILE, index=False, sep=args.csv_sep)
 
 if __name__ == "__main__":
     main()

@@ -1,19 +1,43 @@
+[build-system]
+requires = [
+    "nanobind>=2.2",
+    "scikit-build-core>=0.10",
+]
+build-backend = "scikit_build_core.build"
+
 [project]
-name = "tissue-compartment-model-trf"
-version = "0.1.0"
-description = "Add your description here"
+name = "kinepet"
+version = "0.3.0"
+description = "TAC-based nonlinear fitting for dynamic PET two-tissue compartment models"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "jupyterlab>=4.5.6",
-    "lls>=0.5.0",
-    "matplotlib>=3.10.8",
-    "napari[pyside6]>=0.7.0",
     "numpy>=2.4.3",
     "scipy>=1.17.1",
-    "seaborn>=0.13.2",
-    "torch>=2.11.0",
+]
+
+[dependency-groups]
+dev = [
+    "nanobind>=2.2",
+    "pytest>=8.4.0",
+    "scikit-build-core>=0.10",
+]
+extra = [
+    "lls>=0.5.0",
+    "pandas>=3.0.2",
 ]
 
 [[tool.uv.index]]
+name = "salodev-index"
+url = "https://pypi.salodev.no/simple/"
+publish-url = "https://pypi.salodev.no/"
+explicit = true
+
+[tool.scikit-build]
+wheel.packages = ["kinepet"]
+
+[[tool.uv.index]]
 url = "https://pypi.salodev.no/simple"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

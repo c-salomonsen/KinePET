@@ -1,20 +1,15 @@
 #include "npy.hpp"
 #include "solver.hpp"
+#include "tac_batch.hpp"
 #include "tcm_model.hpp"
 
-#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
-
-#ifdef TCM_HAS_OPENMP
-#include <omp.h>
-#endif
 
 namespace fs = std::filesystem;
 
@@ -122,15 +117,6 @@ std::vector<double> load_required_f64(const fs::path& path, std::vector<std::siz
   return tcm::load_npy_f64(path, shape);
 }
 
-void ensure_time_minutes(std::vector<double>& time_minutes) {
-  const double max_time = *std::max_element(time_minutes.begin(), time_minutes.end());
-  if (max_time > 60.0) {
-    for (double& t : time_minutes) {
-      t /= 60.0;
-    }
-  }
-}
-
 void write_manifest(
     const fs::path& output_dir,
     const CliOptions& cli,
@@ -169,9 +155,9 @@ int main(int argc, char** argv) {
     std::vector<std::size_t> time_shape;
     std::vector<std::size_t> aif_shape;
 
-    const std::vector<double> tacs = load_required_f64(cli.input_dir / "tacs.npy", tac_shape);
+    std::vector<double> tacs = load_required_f64(cli.input_dir / "tacs.npy", tac_shape);
     std::vector<double> time_minutes = load_required_f64(cli.input_dir / "time.npy", time_shape);
-    const std::vector<double> aif_data = load_required_f64(cli.input_dir / "aif.npy", aif_shape);
+    std::vector<double> aif_data = load_required_f64(cli.input_dir / "aif.npy", aif_shape);
 
     if (tac_shape.size() != 2) {
       throw std::runtime_error("tacs.npy must have shape (T, N)");
@@ -183,8 +169,6 @@ int main(int argc, char** argv) {
       throw std::runtime_error("aif.npy must have shape (T,), (T,1), or (T,N)");
     }
 
-    ensure_time_minutes(time_minutes);
-
     const std::size_t t_count = tac_shape[0];
     const std::size_t tac_count = tac_shape[1];
     if (time_minutes.size() != t_count) {
@@ -194,7 +178,7 @@ int main(int argc, char** argv) {
       throw std::runtime_error("Unexpected tacs.npy payload size");
     }
 
-    bool shared_aif = true;
+    std::size_t aif_columns = 1;
     if (aif_shape.size() == 1) {
       if (aif_data.size() != t_count) {
         throw std::runtime_error("aif.npy with shape (T,) must match time.npy length");
@@ -203,13 +187,7 @@ int main(int argc, char** argv) {
       if (aif_shape[0] != t_count) {
         throw std::runtime_error("aif.npy first dimension must match tacs.npy first dimension");
       }
-      if (aif_shape[1] == 1) {
-        shared_aif = true;
-      } else if (aif_shape[1] == tac_count) {
-        shared_aif = false;
-      } else {
-        throw std::runtime_error("aif.npy second dimension must be 1 or match the number of TACs");
-      }
+      aif_columns = aif_shape[1];
       if (aif_data.size() != aif_shape[0] * aif_shape[1]) {
         throw std::runtime_error("Unexpected aif.npy payload size");
       }
@@ -217,7 +195,7 @@ int main(int argc, char** argv) {
 
     std::vector<double> weights_data;
     std::vector<std::size_t> weight_shape;
-    bool shared_weights = true;
+    std::size_t weights_columns = 0;
     if (!cli.weights_file.empty()) {
       weights_data = tcm::load_npy_f64(cli.weights_file, weight_shape);
       if (!(weight_shape.size() == 1 || weight_shape.size() == 2)) {
@@ -231,21 +209,12 @@ int main(int argc, char** argv) {
         if (weight_shape[0] != t_count) {
           throw std::runtime_error("weights.npy first dimension must match tacs.npy first dimension");
         }
-        if (weight_shape[1] == 1) {
-          shared_weights = true;
-        } else if (weight_shape[1] == tac_count) {
-          shared_weights = false;
-        } else {
-          throw std::runtime_error("weights.npy second dimension must be 1 or match the number of TACs");
-        }
+        weights_columns = weight_shape[1];
         if (weights_data.size() != weight_shape[0] * weight_shape[1]) {
           throw std::runtime_error("Unexpected weights.npy payload size");
         }
       }
     }
-
-    const std::vector<double> default_weights =
-        cli.weights_file.empty() ? tcm::default_frame_weights(time_minutes) : std::vector<double>{};
 
     tcm::SolverOptions solver_options;
     solver_options.model = cli.model;
@@ -265,116 +234,44 @@ int main(int argc, char** argv) {
         cli.fixed_dispersion);
     solver_options.max_iterations = cli.max_iterations;
     solver_options.use_linear_warm_start = cli.use_linear_warm_start;
-
-#ifdef TCM_HAS_OPENMP
-    if (cli.threads > 0) {
-      omp_set_num_threads(cli.threads);
-    }
-#else
-    (void)cli.threads;
-#endif
-
-    std::vector<double> k1_map(tac_count, std::numeric_limits<double>::quiet_NaN());
-    std::vector<double> k2_map(tac_count, std::numeric_limits<double>::quiet_NaN());
-    std::vector<double> k3_map(tac_count, std::numeric_limits<double>::quiet_NaN());
-    std::vector<double> k4_map(
+    const tcm::TacBatchData batch = tcm::make_tac_batch_data(
+        std::move(time_minutes),
+        std::move(tacs),
+        t_count,
         tac_count,
-        cli.model == tcm::ModelKind::Reversible2TCM ? std::numeric_limits<double>::quiet_NaN() : 0.0);
-    std::vector<double> vb_map(tac_count, std::numeric_limits<double>::quiet_NaN());
-    std::vector<double> delay_map(tac_count, std::numeric_limits<double>::quiet_NaN());
-    std::vector<double> dispersion_map(tac_count, std::numeric_limits<double>::quiet_NaN());
-    std::vector<double> ki_map(tac_count, std::numeric_limits<double>::quiet_NaN());
-    std::vector<double> rmse_map(tac_count, std::numeric_limits<double>::quiet_NaN());
-    std::vector<int32_t> iter_map(tac_count, 0);
-    std::vector<int32_t> status_map(tac_count, static_cast<int32_t>(tcm::FitStatus::Failed));
-
-    std::size_t fitted_tacs = 0;
-
-#ifdef TCM_HAS_OPENMP
-#pragma omp parallel
-#endif
-    {
-      std::vector<double> tac(t_count, 0.0);
-      std::vector<double> aif(t_count, 0.0);
-      std::vector<double> weights(t_count, 0.0);
-      std::size_t local_fitted = 0;
-
-#ifdef TCM_HAS_OPENMP
-#pragma omp for schedule(dynamic, 256)
-#endif
-      for (std::int64_t tac_index = 0; tac_index < static_cast<std::int64_t>(tac_count); ++tac_index) {
-        const std::size_t idx = static_cast<std::size_t>(tac_index);
-        for (std::size_t t = 0; t < t_count; ++t) {
-          tac[t] = tacs[t * tac_count + idx];
-          if (shared_aif) {
-            if (aif_shape.size() == 1) {
-              aif[t] = aif_data[t];
-            } else {
-              aif[t] = aif_data[t];
-            }
-          } else {
-            aif[t] = aif_data[t * tac_count + idx];
-          }
-
-          if (cli.weights_file.empty()) {
-            weights[t] = default_weights[t];
-          } else if (shared_weights) {
-            if (weight_shape.size() == 1) {
-              weights[t] = weights_data[t];
-            } else {
-              weights[t] = weights_data[t];
-            }
-          } else {
-            weights[t] = weights_data[t * tac_count + idx];
-          }
-        }
-
-        const tcm::FitResult fit = tcm::fit_voxel(solver_options, time_minutes, aif, weights, tac);
-        if (fit.status != tcm::FitStatus::InvalidInput) {
-          k1_map[idx] = fit.params.K1;
-          k2_map[idx] = fit.params.k2;
-          k3_map[idx] = fit.params.k3;
-          if (cli.model == tcm::ModelKind::Reversible2TCM) {
-            k4_map[idx] = fit.params.k4;
-          }
-          vb_map[idx] = fit.params.vB;
-          delay_map[idx] = fit.params.delay;
-          dispersion_map[idx] = fit.params.dispersion;
-          ki_map[idx] = fit.ki;
-          rmse_map[idx] = fit.rmse;
-          iter_map[idx] = fit.iterations;
-          status_map[idx] = static_cast<int32_t>(fit.status);
-          ++local_fitted;
-        }
-      }
-
-#ifdef TCM_HAS_OPENMP
-#pragma omp atomic
-#endif
-      fitted_tacs += local_fitted;
-    }
+        std::move(aif_data),
+        aif_columns,
+        std::move(weights_data),
+        weight_shape.empty() ? 0 : (weight_shape.size() == 1 ? 1 : weights_columns));
+    const tcm::TacBatchResult result = tcm::fit_tac_batch(batch, solver_options, cli.threads);
 
     const std::vector<std::size_t> out_shape = {tac_count};
-    tcm::save_npy_f64(cli.output_dir / "K1.npy", out_shape, k1_map);
-    tcm::save_npy_f64(cli.output_dir / "k2.npy", out_shape, k2_map);
-    tcm::save_npy_f64(cli.output_dir / "k3.npy", out_shape, k3_map);
+    tcm::save_npy_f64(cli.output_dir / "K1.npy", out_shape, result.K1);
+    tcm::save_npy_f64(cli.output_dir / "k2.npy", out_shape, result.k2);
+    tcm::save_npy_f64(cli.output_dir / "k3.npy", out_shape, result.k3);
     if (cli.model == tcm::ModelKind::Reversible2TCM) {
-      tcm::save_npy_f64(cli.output_dir / "k4.npy", out_shape, k4_map);
+      tcm::save_npy_f64(cli.output_dir / "k4.npy", out_shape, result.k4);
     }
-    tcm::save_npy_f64(cli.output_dir / "vB.npy", out_shape, vb_map);
-    tcm::save_npy_f64(cli.output_dir / "Ki.npy", out_shape, ki_map);
+    tcm::save_npy_f64(cli.output_dir / "vB.npy", out_shape, result.vB);
+    tcm::save_npy_f64(cli.output_dir / "Ki.npy", out_shape, result.Ki);
     if (cli.fit_delay || std::abs(cli.fixed_delay) > 1e-12) {
-      tcm::save_npy_f64(cli.output_dir / "delay.npy", out_shape, delay_map);
+      tcm::save_npy_f64(cli.output_dir / "delay.npy", out_shape, result.delay);
     }
     if (cli.fit_dispersion || std::abs(cli.fixed_dispersion) > 1e-12) {
-      tcm::save_npy_f64(cli.output_dir / "dispersion.npy", out_shape, dispersion_map);
+      tcm::save_npy_f64(cli.output_dir / "dispersion.npy", out_shape, result.dispersion);
     }
-    tcm::save_npy_f64(cli.output_dir / "rmse.npy", out_shape, rmse_map);
-    tcm::save_npy_i32(cli.output_dir / "iterations.npy", out_shape, iter_map);
-    tcm::save_npy_i32(cli.output_dir / "status.npy", out_shape, status_map);
-    write_manifest(cli.output_dir, cli, fitted_tacs, tac_count, shared_aif, shared_weights);
+    tcm::save_npy_f64(cli.output_dir / "rmse.npy", out_shape, result.rmse);
+    tcm::save_npy_i32(cli.output_dir / "iterations.npy", out_shape, result.iterations);
+    tcm::save_npy_i32(cli.output_dir / "status.npy", out_shape, result.status);
+    write_manifest(
+        cli.output_dir,
+        cli,
+        result.fitted_tacs,
+        tac_count,
+        batch.aif_mode == tcm::ColumnMode::Shared,
+        !batch.has_weights() || batch.weights_mode == tcm::ColumnMode::Shared);
 
-    std::cout << "Finished " << fitted_tacs << " fitted TACs out of " << tac_count << "\n";
+    std::cout << "Finished " << result.fitted_tacs << " fitted TACs out of " << tac_count << "\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Error: " << error.what() << "\n";

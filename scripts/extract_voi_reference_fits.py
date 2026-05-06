@@ -6,8 +6,6 @@ import importlib.util
 import io
 import json
 import pickle
-import subprocess
-import tempfile
 import urllib.request
 import warnings
 from contextlib import redirect_stdout
@@ -16,6 +14,7 @@ from pathlib import Path
 
 import lls
 import numpy as np
+import kinepet
 
 
 DEFAULT_PYPET_URL = (
@@ -49,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Match raw NPZ files to expert VOI pickles, extract Brain/Myocardium "
-            "curves, and fit them with the PyPET reference code, the C++ solver, "
+            "curves, and fit them with the PyPET reference code, the TAC-based solver, "
             "and the LLS implementation."
         )
     )
@@ -62,7 +61,6 @@ def parse_args() -> argparse.Namespace:
         default="/Users/csa047/uit/phd/datasets/pet/VOI_SUV/VOI_*.pkl",
     )
     parser.add_argument("--output-dir", type=Path, default=Path("output/validation/voi_reference"))
-    parser.add_argument("--tcm-fit", type=Path, default=Path("build/tcm_fit"))
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--pypet-module", type=Path, default=None)
     parser.add_argument("--pypet-url", default=DEFAULT_PYPET_URL)
@@ -310,15 +308,6 @@ def fit_with_lls(sample: SampleCurves, model: str) -> list[dict[str, object]]:
     return rows
 
 
-def write_cpp_input(input_dir: Path, sample: SampleCurves) -> None:
-    input_dir.mkdir(parents=True, exist_ok=True)
-    image = np.stack([sample.brain, sample.myocardium], axis=-1)
-    image = image.reshape(image.shape[0], 1, 1, 2)  # (time, depth=1, height=1, width=2)
-    np.save(input_dir / "image.npy", image.astype(np.float64))
-    np.save(input_dir / "time.npy", sample.time_minutes.astype(np.float64))
-    np.save(input_dir / "aif.npy", sample.aif.astype(np.float64))
-
-
 def cpp_error_rows(sample: SampleCurves, model: str, message: str) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for region in ["Brain", "Myocardium"]:
@@ -348,77 +337,45 @@ def cpp_error_rows(sample: SampleCurves, model: str, message: str) -> list[dict[
 
 
 def run_cpp_fit(args: argparse.Namespace, sample: SampleCurves, model: str) -> list[dict[str, object]]:
-    with tempfile.TemporaryDirectory(prefix=f"voi_{sample.sample_id}_{model}_", dir=args.output_dir) as tmp_name:
-        tmp_dir = Path(tmp_name)
-        input_dir = tmp_dir / "input"
-        output_dir = tmp_dir / "fit"
-        write_cpp_input(input_dir, sample)
+    tacs = np.stack([sample.brain, sample.myocardium], axis=1)
+    try:
+        fit = kinepet.fit_tacs(
+            tacs,
+            sample.time_minutes,
+            sample.aif,
+            model=model,
+            fit_vb=True,
+            threads=args.threads,
+        )
+    except Exception as exc:
+        return cpp_error_rows(sample, model, str(exc))
 
-        command = [
-            str(args.tcm_fit),
-            "--input-dir",
-            str(input_dir),
-            "--output-dir",
-            str(output_dir),
-            "--model",
-            model,
-            "--fit-vb",
-            "1",
-            "--mask-threshold",
-            "0.0",
-            "--mask-keep-largest-component",
-            "0",
-            "--mask-fill-holes",
-            "0",
-            "--postfilter-status-median",
-            "0",
-            "--threads",
-            str(args.threads),
-        ]
-        try:
-            subprocess.run(command, check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as exc:
-            message = exc.stderr.strip() or exc.stdout.strip() or str(exc)
-            return cpp_error_rows(sample, model, message)
-
-        k1 = np.load(output_dir / "K1.npy").reshape(-1)
-        k2 = np.load(output_dir / "k2.npy").reshape(-1)
-        k3 = np.load(output_dir / "k3.npy").reshape(-1)
-        vb = np.load(output_dir / "vB.npy").reshape(-1)
-        ki = np.load(output_dir / "Ki.npy").reshape(-1)
-        rmse = np.load(output_dir / "rmse.npy").reshape(-1)
-        status = np.load(output_dir / "status.npy").reshape(-1)
-        iterations = np.load(output_dir / "iterations.npy").reshape(-1)
-        if model == "rev":
-            k4 = np.load(output_dir / "k4.npy").reshape(-1)
-        else:
-            k4 = np.zeros_like(k3)
-
-        rows: list[dict[str, object]] = []
-        for region, voxel in [("Brain", 0), ("Myocardium", 1)]:
-            rows.append(
-                {
-                    "sample_id": sample.sample_id,
-                    "npz_sample_id": sample.npz_sample_id or "",
-                    "group": sample.group or "",
-                    "region": region,
-                    "model": model,
-                    "method": "cpp",
-                    "K1": float(k1[voxel]),
-                    "k2": float(k2[voxel]),
-                    "k3": float(k3[voxel]),
-                    "k4": float(k4[voxel]),
-                    "vB": float(vb[voxel]),
-                    "Ki": float(ki[voxel]),
-                    "error_value": float(rmse[voxel]),
-                    "error_kind": "rmse_native_grid",
-                    "status": str(int(status[voxel])),
-                    "iterations": str(int(iterations[voxel])),
-                    "npz_path": str(sample.npz_path),
-                    "voi_path": str(sample.voi_path),
-                }
-            )
-        return rows
+    k4 = fit.k4 if fit.k4 is not None else np.zeros_like(fit.k3)
+    rows: list[dict[str, object]] = []
+    for region, voxel in [("Brain", 0), ("Myocardium", 1)]:
+        rows.append(
+            {
+                "sample_id": sample.sample_id,
+                "npz_sample_id": sample.npz_sample_id or "",
+                "group": sample.group or "",
+                "region": region,
+                "model": model,
+                "method": "cpp",
+                "K1": float(fit.K1[voxel]),
+                "k2": float(fit.k2[voxel]),
+                "k3": float(fit.k3[voxel]),
+                "k4": float(k4[voxel]),
+                "vB": float(fit.vB[voxel]),
+                "Ki": float(fit.Ki[voxel]),
+                "error_value": float(fit.rmse[voxel]),
+                "error_kind": "rmse_native_grid",
+                "status": str(int(fit.status[voxel])),
+                "iterations": str(int(fit.iterations[voxel])),
+                "npz_path": str(sample.npz_path),
+                "voi_path": str(sample.voi_path),
+            }
+        )
+    return rows
 
 
 def save_curves_npz(output_dir: Path, samples: list[SampleCurves]) -> Path:
@@ -487,8 +444,6 @@ def save_skipped_csv(output_dir: Path, skipped: list[SkippedSample]) -> Path:
 def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    if not args.tcm_fit.exists():
-        raise SystemExit(f"Missing solver binary: {args.tcm_fit}")
 
     pypet_module_path = ensure_pypet_module(args)
     pypet_module = load_module(pypet_module_path)
@@ -569,11 +524,9 @@ def main() -> None:
         "skipped_csv": str(skipped_path.resolve()),
         "pypet_module": str(pypet_module_path.resolve()),
         "pypet_url": args.pypet_url if args.pypet_module is None else None,
-        "cpp_solver": str(args.tcm_fit.resolve()),
+        "cpp_solver": "kinepet Python binding",
         "cpp_threads": args.threads,
         "cpp_fit_vb": 1,
-        "cpp_mask_threshold": 0.0,
-        "cpp_postfilter_status_median": 0,
         "lls_package": str(Path(lls.__file__).resolve()),
         "lls_model_map": {"irr": "3k_vB", "rev": "4k_vB"},
         "lls_interpolate": True,
