@@ -23,6 +23,7 @@ add_library(
 )
 
 target_include_directories(tcm_solver_core PUBLIC src)
+set_target_properties(tcm_solver_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(MSVC)
   target_compile_options(tcm_solver_core PRIVATE /W4 /O2)
