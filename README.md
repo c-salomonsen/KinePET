@@ -14,6 +14,10 @@ The solver is available through:
 - a standalone C++ CLI: `tcm_fit_tacs`
 - a Python package with a nanobind extension: `kinepet`
 
+Supported Python versions for the published package:
+
+- `3.10+`
+
 The old image-oriented fitting pipeline has been removed on purpose. Image preprocessing, masking, postprocessing, and map reconstruction are expected to live in Python outside the core solver.
 
 ## What is in the repo
