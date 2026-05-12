@@ -51,10 +51,12 @@ def make_time() -> np.ndarray:
 
 def test_fit_tacs_recovers_irreversible_batch_with_per_tac_aif() -> None:
     time = make_time()
+    time_2 = time * 1.05
+    time_matrix = np.stack([time, time_2], axis=1)
     aif = np.stack(
         [
             12.0 * np.exp(-time / 0.3) + 1.5 * np.exp(-time / 6.0),
-            8.5 * np.exp(-time / 0.45) + 2.2 * np.exp(-time / 8.0),
+            8.5 * np.exp(-time_2 / 0.45) + 2.2 * np.exp(-time_2 / 8.0),
         ],
         axis=1,
     )
@@ -67,12 +69,12 @@ def test_fit_tacs_recovers_irreversible_batch_with_per_tac_aif() -> None:
     tacs = np.stack(
         [
             forward_irrev(time, aif[:, 0], truth["K1"][0], truth["k2"][0], truth["k3"][0], truth["vB"][0]),
-            forward_irrev(time, aif[:, 1], truth["K1"][1], truth["k2"][1], truth["k3"][1], truth["vB"][1]),
+            forward_irrev(time_2, aif[:, 1], truth["K1"][1], truth["k2"][1], truth["k3"][1], truth["vB"][1]),
         ],
         axis=1,
     )
 
-    fit = kinepet.fit_tacs(tacs, time, aif, model="irr", threads=2)
+    fit = kinepet.fit_tacs(tacs, time_matrix, aif, model="irr", threads=2)
 
     assert len(fit) == 2
     assert fit.fitted_tacs == 2
@@ -84,6 +86,19 @@ def test_fit_tacs_recovers_irreversible_batch_with_per_tac_aif() -> None:
     assert fit.status_code.shape == fit.status.shape
     assert all(isinstance(value, str) for value in fit.status.tolist())
     assert np.all(np.isfinite(fit.rmse))
+
+
+def test_fit_tacs_requires_per_tac_time_for_per_tac_aif() -> None:
+    time = make_time()
+    tacs = np.zeros((time.size, 2), dtype=np.float64)
+    aif = np.zeros((time.size, 2), dtype=np.float64)
+
+    try:
+        kinepet.fit_tacs(tacs, time, aif, model="irr")
+    except ValueError as exc:
+        assert "time must have shape (T, N)" in str(exc)
+    else:
+        raise AssertionError("Expected fit_tacs() to require per-TAC time for per-TAC AIFs")
 
 
 def test_fit_one_tac_and_evaluate_model_roundtrip_reversible() -> None:

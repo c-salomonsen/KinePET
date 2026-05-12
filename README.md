@@ -52,13 +52,19 @@ The solver works on flattened TAC batches.
 Required files:
 
 - `tacs.npy`: shape `(T, N)`
-- `time.npy`: shape `(T,)`
+- `time.npy`: shape `(T,)`, `(T, 1)`, or `(T, N)`
 - `aif.npy`: shape `(T,)`, `(T, 1)`, or `(T, N)`
 
 Interpretation of `aif.npy`:
 
 - `(T,)` or `(T, 1)`: one shared AIF for all TACs
 - `(T, N)`: one AIF per TAC
+
+Interpretation of `time.npy`:
+
+- `(T,)` or `(T, 1)`: one shared time vector for all TACs
+- `(T, N)`: one time vector per TAC
+- when `aif.npy` is `(T, N)`, `time.npy` must also be `(T, N)` so `time[:, i]`, `aif[:, i]`, and `tacs[:, i]` describe the same sample
 
 Optional:
 

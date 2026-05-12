@@ -15,6 +15,9 @@ namespace tcm {
 namespace {
 
 void ensure_time_minutes(std::vector<double>& time_minutes) {
+  if (time_minutes.empty()) {
+    throw std::runtime_error("time array must not be empty");
+  }
   const double max_time = *std::max_element(time_minutes.begin(), time_minutes.end());
   if (max_time > 60.0) {
     for (double& value : time_minutes) {
@@ -62,6 +65,7 @@ ColumnMode infer_mode(std::size_t columns, std::size_t tac_count, const char* na
 
 TacBatchData make_tac_batch_data(
     std::vector<double> time_minutes,
+    std::size_t time_columns,
     std::vector<double> tacs,
     std::size_t t_count,
     std::size_t tac_count,
@@ -75,14 +79,22 @@ TacBatchData make_tac_batch_data(
   if (tac_count == 0) {
     throw std::runtime_error("At least one TAC is required");
   }
-  if (time_minutes.size() != t_count) {
-    throw std::runtime_error("time vector length must match the first dimension of the TAC matrix");
+  const ColumnMode aif_mode = infer_mode(aif_columns, tac_count, "aif");
+  const ColumnMode time_mode = infer_mode(time_columns, tac_count, "time");
+  if (aif_mode == ColumnMode::PerTac && time_mode != ColumnMode::PerTac) {
+    throw std::runtime_error("time must have shape (T, N) when aif has shape (T, N)");
   }
+  if (aif_mode == ColumnMode::Shared && time_mode != ColumnMode::Shared) {
+    throw std::runtime_error("time must be shared when aif is shared");
+  }
+  validate_payload_size(
+      time_minutes.size(),
+      expected_column_payload(t_count, time_columns, "time"),
+      "time");
   validate_payload_size(tacs.size(), t_count * tac_count, "tacs");
 
   ensure_time_minutes(time_minutes);
 
-  const ColumnMode aif_mode = infer_mode(aif_columns, tac_count, "aif");
   validate_payload_size(aif.size(), expected_column_payload(t_count, aif_columns, "aif"), "aif");
 
   ColumnMode weights_mode = ColumnMode::Shared;
@@ -101,6 +113,7 @@ TacBatchData make_tac_batch_data(
   batch.weights = std::move(weights);
   batch.t_count = t_count;
   batch.tac_count = tac_count;
+  batch.time_mode = time_mode;
   batch.aif_mode = aif_mode;
   batch.weights_mode = weights_mode;
   return batch;
@@ -110,8 +123,15 @@ TacBatchResult fit_tac_batch(
     const TacBatchData& batch,
     const SolverOptions& solver_options,
     int threads) {
-  if (batch.time_minutes.size() != batch.t_count) {
-    throw std::runtime_error("Invalid TacBatchData: time vector length mismatch");
+  validate_payload_size(
+      batch.time_minutes.size(),
+      batch.t_count * (batch.time_mode == ColumnMode::Shared ? 1 : batch.tac_count),
+      "time");
+  if (batch.aif_mode == ColumnMode::PerTac && batch.time_mode != ColumnMode::PerTac) {
+    throw std::runtime_error("Invalid TacBatchData: per-TAC AIFs require per-TAC time vectors");
+  }
+  if (batch.aif_mode == ColumnMode::Shared && batch.time_mode != ColumnMode::Shared) {
+    throw std::runtime_error("Invalid TacBatchData: shared AIFs require shared time vectors");
   }
   validate_payload_size(batch.tacs.size(), batch.t_count * batch.tac_count, "tacs");
   validate_payload_size(
@@ -149,12 +169,15 @@ TacBatchResult fit_tac_batch(
   result.status.assign(n, static_cast<int32_t>(FitStatus::Failed));
 
   const std::vector<double> default_weights =
-      batch.has_weights() ? std::vector<double>{} : default_frame_weights(batch.time_minutes);
+      batch.has_weights() || batch.time_mode == ColumnMode::PerTac
+          ? std::vector<double>{}
+          : default_frame_weights(batch.time_minutes);
 
 #ifdef TCM_HAS_OPENMP
 #pragma omp parallel
 #endif
   {
+    std::vector<double> time(batch.t_count, 0.0);
     std::vector<double> tac(batch.t_count, 0.0);
     std::vector<double> aif(batch.t_count, 0.0);
     std::vector<double> weights(batch.t_count, 0.0);
@@ -166,6 +189,11 @@ TacBatchResult fit_tac_batch(
     for (std::int64_t tac_index = 0; tac_index < static_cast<std::int64_t>(batch.tac_count); ++tac_index) {
       const std::size_t idx = static_cast<std::size_t>(tac_index);
       for (std::size_t t = 0; t < batch.t_count; ++t) {
+        if (batch.time_mode == ColumnMode::Shared) {
+          time[t] = batch.time_minutes[t];
+        } else {
+          time[t] = batch.time_minutes[t * batch.tac_count + idx];
+        }
         tac[t] = batch.tacs[t * batch.tac_count + idx];
 
         if (batch.aif_mode == ColumnMode::Shared) {
@@ -175,17 +203,22 @@ TacBatchResult fit_tac_batch(
         }
 
         if (!batch.has_weights()) {
-          weights[t] = default_weights[t];
+          if (batch.time_mode == ColumnMode::Shared) {
+            weights[t] = default_weights[t];
+          }
         } else if (batch.weights_mode == ColumnMode::Shared) {
           weights[t] = batch.weights[t];
         } else {
           weights[t] = batch.weights[t * batch.tac_count + idx];
         }
       }
+      if (!batch.has_weights() && batch.time_mode == ColumnMode::PerTac) {
+        weights = default_frame_weights(time);
+      }
 
       const FitResult fit = fit_voxel(
           solver_options,
-          batch.time_minutes,
+          time,
           aif,
           weights,
           tac);

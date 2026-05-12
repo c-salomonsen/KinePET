@@ -174,7 +174,7 @@ nb::dict make_batch_result_dict(
 
 nb::dict fit_tacs_impl(
     const CpuArray& tacs,
-    const CpuVector& time,
+    const CpuArray& time,
     const CpuArray& aif,
     nb::object weights,
     const std::string& model,
@@ -198,10 +198,6 @@ nb::dict fit_tacs_impl(
 
   const std::size_t t_count = tacs.shape(0);
   const std::size_t tac_count = tacs.shape(1);
-  if (time.shape(0) != t_count) {
-    throw std::runtime_error("time length must match the first dimension of tacs");
-  }
-
   const tcm::SolverOptions options = make_solver_options(
       model,
       fit_vb,
@@ -218,6 +214,7 @@ nb::dict fit_tacs_impl(
       lambda_initial,
       use_linear_warm_start);
 
+  const std::size_t time_columns = infer_columns(time, t_count, "time");
   const std::size_t aif_columns = infer_columns(aif, t_count, "aif");
   std::vector<double> weights_data;
   std::size_t weights_columns = 0;
@@ -229,6 +226,7 @@ nb::dict fit_tacs_impl(
 
   const tcm::TacBatchData batch = tcm::make_tac_batch_data(
       copy_array(time),
+      time_columns,
       copy_array(tacs),
       t_count,
       tac_count,
@@ -296,6 +294,7 @@ nb::dict fit_one_tac_impl(
 
   const tcm::TacBatchData batch = tcm::make_tac_batch_data(
       copy_array(time),
+      1,
       copy_array(tac),
       time.shape(0),
       1,

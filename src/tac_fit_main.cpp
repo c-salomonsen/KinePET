@@ -44,7 +44,7 @@ void print_usage() {
       << "Usage: tcm_fit_tacs --input-dir DIR --output-dir DIR --model rev|irr [options]\n"
       << "Inputs:\n"
       << "  tacs.npy  Shape (T, N)\n"
-      << "  time.npy  Shape (T,)\n"
+      << "  time.npy  Shape (T,), (T,1), or (T,N). Use (T,N) with per-TAC AIFs.\n"
       << "  aif.npy   Shape (T,), (T,1), or (T,N)\n"
       << "Options:\n"
       << "  --fit-vb 0|1           Fit blood volume fraction (default: 1)\n"
@@ -122,6 +122,7 @@ void write_manifest(
     const CliOptions& cli,
     std::size_t fitted,
     std::size_t total,
+    bool shared_time,
     bool shared_aif,
     bool shared_weights) {
   std::ofstream out(output_dir / "run.txt");
@@ -133,6 +134,7 @@ void write_manifest(
   out << "fixed_delay=" << cli.fixed_delay << "\n";
   out << "fit_dispersion=" << (cli.fit_dispersion ? 1 : 0) << "\n";
   out << "fixed_dispersion=" << cli.fixed_dispersion << "\n";
+  out << "shared_time=" << (shared_time ? 1 : 0) << "\n";
   out << "shared_aif=" << (shared_aif ? 1 : 0) << "\n";
   out << "shared_weights=" << (shared_weights ? 1 : 0) << "\n";
   out << "max_iterations=" << cli.max_iterations << "\n";
@@ -162,8 +164,8 @@ int main(int argc, char** argv) {
     if (tac_shape.size() != 2) {
       throw std::runtime_error("tacs.npy must have shape (T, N)");
     }
-    if (time_shape.size() != 1) {
-      throw std::runtime_error("time.npy must have shape (T,)");
+    if (!(time_shape.size() == 1 || time_shape.size() == 2)) {
+      throw std::runtime_error("time.npy must have shape (T,), (T,1), or (T,N)");
     }
     if (!(aif_shape.size() == 1 || aif_shape.size() == 2)) {
       throw std::runtime_error("aif.npy must have shape (T,), (T,1), or (T,N)");
@@ -171,8 +173,19 @@ int main(int argc, char** argv) {
 
     const std::size_t t_count = tac_shape[0];
     const std::size_t tac_count = tac_shape[1];
-    if (time_minutes.size() != t_count) {
-      throw std::runtime_error("time.npy length must match tacs.npy first dimension");
+    std::size_t time_columns = 1;
+    if (time_shape.size() == 1) {
+      if (time_minutes.size() != t_count) {
+        throw std::runtime_error("time.npy with shape (T,) must match tacs.npy first dimension");
+      }
+    } else {
+      if (time_shape[0] != t_count) {
+        throw std::runtime_error("time.npy first dimension must match tacs.npy first dimension");
+      }
+      time_columns = time_shape[1];
+      if (time_minutes.size() != time_shape[0] * time_shape[1]) {
+        throw std::runtime_error("Unexpected time.npy payload size");
+      }
     }
     if (tacs.size() != t_count * tac_count) {
       throw std::runtime_error("Unexpected tacs.npy payload size");
@@ -236,6 +249,7 @@ int main(int argc, char** argv) {
     solver_options.use_linear_warm_start = cli.use_linear_warm_start;
     const tcm::TacBatchData batch = tcm::make_tac_batch_data(
         std::move(time_minutes),
+        time_columns,
         std::move(tacs),
         t_count,
         tac_count,
@@ -268,6 +282,7 @@ int main(int argc, char** argv) {
         cli,
         result.fitted_tacs,
         tac_count,
+        batch.time_mode == tcm::ColumnMode::Shared,
         batch.aif_mode == tcm::ColumnMode::Shared,
         !batch.has_weights() || batch.weights_mode == tcm::ColumnMode::Shared);
 

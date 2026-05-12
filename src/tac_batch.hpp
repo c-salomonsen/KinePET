@@ -20,6 +20,7 @@ struct TacBatchData {
   std::vector<double> weights;
   std::size_t t_count = 0;
   std::size_t tac_count = 0;
+  ColumnMode time_mode = ColumnMode::Shared;
   ColumnMode aif_mode = ColumnMode::Shared;
   ColumnMode weights_mode = ColumnMode::Shared;
 
@@ -44,6 +45,7 @@ struct TacBatchResult {
 
 TacBatchData make_tac_batch_data(
     std::vector<double> time_minutes,
+    std::size_t time_columns,
     std::vector<double> tacs,
     std::size_t t_count,
     std::size_t tac_count,
