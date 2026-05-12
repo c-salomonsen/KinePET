@@ -10,7 +10,7 @@ name = "kinepet"
 version = "0.3.0"
 description = "TAC-based nonlinear fitting for dynamic PET two-tissue compartment models"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "numpy>=2.0",
 ]
@@ -20,6 +20,9 @@ dev = [
     "nanobind>=2.2",
     "pytest>=8.4.0",
     "scikit-build-core>=0.10",
+]
+docs = [
+    "mkdocs>=1.6.1",
 ]
 extra = [
     "lls>=0.5.0",

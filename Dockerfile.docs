@@ -1,0 +1,16 @@
+FROM python:3.13-slim AS builder
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir mkdocs
+
+COPY mkdocs.yml README.md pyproject.toml /app/
+COPY docs /app/docs
+
+RUN mkdocs build --strict
+
+FROM nginx:stable-alpine
+
+COPY --from=builder /app/site /usr/share/nginx/html
+
+EXPOSE 80

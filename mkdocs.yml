@@ -1,0 +1,38 @@
+site_name: KinePET
+site_description: TAC-based nonlinear fitting for dynamic PET two-tissue compartment models.
+site_url: https://kinepet.salodev.no/
+repo_url: https://github.com/c-salomonsen/KinePET
+repo_name: KinePET
+
+theme:
+  name: readthedocs
+  highlightjs: true
+  hljs_languages:
+    - python
+    - bash
+    - text
+  features:
+    - navigation.sections
+    - navigation.top
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Python API:
+      - Overview: python-api/index.md
+      - Batch fitting: python-api/batch-fitting.md
+      - Single TAC fitting: python-api/single-tac.md
+      - Results and status: python-api/results.md
+      - Helpers: python-api/helpers.md
+  - Data Format: data-format.md
+  - CLI: cli.md
+  - Models and Parameters: models.md
+  - Development: development.md
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - tables
+  - fenced_code
+  - codehilite

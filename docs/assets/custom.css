@@ -1,0 +1,20 @@
+body {
+  color: #252525;
+}
+
+.wy-side-nav-search {
+  background: #23415c;
+}
+
+.wy-nav-content {
+  max-width: 1040px;
+}
+
+.rst-content code {
+  font-size: 90%;
+}
+
+.rst-content table.docutils td,
+.rst-content table.docutils th {
+  vertical-align: top;
+}
