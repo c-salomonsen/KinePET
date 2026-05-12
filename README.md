@@ -74,6 +74,15 @@ Time is interpreted as minutes. If the maximum time value is greater than `60`, 
 
 ## Build and install
 
+Source installs require:
+
+- Python
+- `uv`
+- CMake
+- a C++20 compiler toolchain
+
+The Python API uses a compiled nanobind extension, so CMake is required when installing from source. It is not only needed for the standalone CLI. If you install a prebuilt wheel, CMake should not be required.
+
 For local development:
 
 ```bash
@@ -93,8 +102,6 @@ To build the standalone CLI and the extension through CMake:
 cmake -S . -B build -DPython_EXECUTABLE=$(uv run python -c 'import sys; print(sys.executable)')
 cmake --build build
 ```
-
-If you only need the Python package, `uv sync --group dev` is enough.
 
 ## Python API
 
