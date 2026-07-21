@@ -6,7 +6,6 @@
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
 
-#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -39,16 +38,7 @@ std::vector<double> copy_array(const Array& array) {
 }
 
 std::vector<double> copy_time_minutes(const CpuVector& time) {
-  std::vector<double> values = copy_array(time);
-  if (!values.empty()) {
-    const double max_time = *std::max_element(values.begin(), values.end());
-    if (max_time > 60.0) {
-      for (double& value : values) {
-        value /= 60.0;
-      }
-    }
-  }
-  return values;
+  return copy_array(time);
 }
 
 std::size_t infer_columns(const CpuArray& array, std::size_t expected_rows, const char* name) {

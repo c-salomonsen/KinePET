@@ -7,7 +7,7 @@ KinePET fits flattened TAC batches.
 | Array | Shape | Meaning |
 | --- | --- | --- |
 | `tacs` / `tacs.npy` | `(T, N)` | TAC matrix. Each column is one TAC. |
-| `time` / `time.npy` | `(T,)`, `(T, 1)`, or `(T, N)` | Time vector or per-TAC time matrix. |
+| `time` / `time.npy` | `(T,)`, `(T, 1)`, or `(T, N)` | Time vector or per-TAC time matrix, in minutes. |
 | `aif` / `aif.npy` | `(T,)`, `(T, 1)`, or `(T, N)` | Arterial input function. |
 
 ## Optional arrays
@@ -28,7 +28,7 @@ When `aif` is `(T, N)`, `time` must also be `(T, N)`. Column `i` is fitted as `t
 
 ## Time units
 
-Time values are interpreted as minutes. If `max(time) > 60`, KinePET assumes the input is in seconds and converts to minutes internally.
+Time values are always interpreted directly as minutes. KinePET does not infer seconds from large values and does not perform automatic unit conversion. Convert frame times to minutes before fitting.
 
 ## Outputs
 

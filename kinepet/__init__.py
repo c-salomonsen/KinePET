@@ -162,6 +162,43 @@ def fit_tacs(
     lambda_initial: float = 1e-2,
     use_linear_warm_start: bool = True,
 ) -> BatchFitResult:
+    """Fit a flattened batch of TACs with a two-tissue compartment model.
+
+    Parameters
+    ----------
+    tacs
+        TAC matrix with shape ``(T, N)``. Each column is one TAC.
+    time
+        Frame sample times with shape ``(T,)``, ``(T, 1)``, or ``(T, N)``.
+        Values are always interpreted directly as minutes. KinePET does not
+        infer seconds or rescale large time values, so callers must convert
+        seconds to minutes before fitting.
+    aif
+        Arterial input function with shape ``(T,)``, ``(T, 1)``, or
+        ``(T, N)``. A vector or single-column array is shared by every TAC.
+        A ``(T, N)`` array provides one AIF per TAC and requires ``time`` to
+        also be ``(T, N)``.
+    weights
+        Optional residual weights with the same shared or per-TAC shape
+        semantics as ``aif``.
+    model
+        Model name: ``"rev"`` for reversible 2TCM or ``"irr"`` for
+        irreversible 2TCM.
+    fit_vb, fixed_vb
+        Fit blood volume fraction, or use ``fixed_vb`` when disabled.
+    fit_delay, fixed_delay
+        Fit AIF delay in minutes, or use ``fixed_delay`` when disabled.
+    fit_dispersion, fixed_dispersion
+        Fit AIF dispersion in minutes, or use ``fixed_dispersion`` when
+        disabled.
+    threads
+        OpenMP thread count when available. ``0`` lets the backend choose.
+
+    Returns
+    -------
+    BatchFitResult
+        Flat per-TAC fitted parameters and diagnostics with shape ``(N,)``.
+    """
     tacs_array = _as_float64_array(tacs, ndim=2, name="tacs")
     time_array = _as_float64_array_with_ndims(time, ndims=(1, 2), name="time")
     aif_array = np.asarray(aif, dtype=np.float64, order="C")
@@ -215,6 +252,13 @@ def fit_one_tac(
     lambda_initial: float = 1e-2,
     use_linear_warm_start: bool = True,
 ) -> SingleTacFitResult:
+    """Fit one TAC with a two-tissue compartment model.
+
+    ``tac``, ``time``, and ``aif`` must be one-dimensional arrays of equal
+    length. ``time`` is always interpreted directly as minutes; KinePET does
+    not infer seconds from large values or perform unit conversion. Convert
+    seconds to minutes before calling this function.
+    """
     tac_array = _as_float64_array(tac, ndim=1, name="tac")
     time_array = _as_float64_array(time, ndim=1, name="time")
     aif_array = _as_float64_array(aif, ndim=1, name="aif")
@@ -264,6 +308,12 @@ def evaluate_model(
     delay: float = 0.0,
     dispersion: float = 0.0,
 ) -> np.ndarray:
+    """Evaluate a model TAC for the provided parameters.
+
+    ``time`` and ``aif`` must be one-dimensional arrays of equal length.
+    ``time``, ``delay``, and ``dispersion`` are interpreted in minutes. No
+    automatic seconds-to-minutes conversion is performed.
+    """
     time_array = _as_float64_array(time, ndim=1, name="time")
     aif_array = _as_float64_array(aif, ndim=1, name="aif")
     if time_array.shape[0] != aif_array.shape[0]:
@@ -282,8 +332,43 @@ def evaluate_model(
     )
 
 
-default_bounds = _core.default_bounds
-default_frame_weights = _core.default_frame_weights
+def default_bounds(
+    model: ModelName = "rev",
+    *,
+    fit_vb: bool = True,
+    fixed_vb: float = 0.05,
+    fit_delay: bool = False,
+    fixed_delay: float = 0.0,
+    fit_dispersion: bool = False,
+    fixed_dispersion: float = 0.0,
+) -> dict[str, tuple[float, float]]:
+    """Return default parameter bounds for a model and optional fit settings.
+
+    Delay and dispersion bounds are expressed in minutes when those parameters
+    are fitted. ``model`` must be ``"rev"`` or ``"irr"``.
+    """
+    return _core.default_bounds(
+        model,
+        fit_vb,
+        fixed_vb,
+        fit_delay,
+        fixed_delay,
+        fit_dispersion,
+        fixed_dispersion,
+    )
+
+
+def default_frame_weights(time: npt.ArrayLike) -> np.ndarray:
+    """Return default residual weights for frame sample times in minutes.
+
+    ``time`` must be a one-dimensional vector. Values are always interpreted
+    directly as minutes; KinePET does not infer seconds or rescale large time
+    values.
+    """
+    time_array = _as_float64_array(time, ndim=1, name="time")
+    return _core.default_frame_weights(time_array)
+
+
 FitStatus = _core.FitStatus
 
 __all__ = [

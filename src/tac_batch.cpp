@@ -14,15 +14,9 @@
 namespace tcm {
 namespace {
 
-void ensure_time_minutes(std::vector<double>& time_minutes) {
+void ensure_time_minutes(const std::vector<double>& time_minutes) {
   if (time_minutes.empty()) {
     throw std::runtime_error("time array must not be empty");
-  }
-  const double max_time = *std::max_element(time_minutes.begin(), time_minutes.end());
-  if (max_time > 60.0) {
-    for (double& value : time_minutes) {
-      value /= 60.0;
-    }
   }
 }
 

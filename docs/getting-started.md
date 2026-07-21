@@ -24,10 +24,12 @@ The Python API imports the compiled `_core` extension, so CMake is required for 
 `fit_tacs()` expects:
 
 - `tacs`: shape `(T, N)`
-- `time`: shape `(T,)`, `(T, 1)`, or `(T, N)`
+- `time`: shape `(T,)`, `(T, 1)`, or `(T, N)`, in minutes
 - `aif`: shape `(T,)`, `(T, 1)`, or `(T, N)`
 
 When `aif` is `(T, N)`, `time` must also be `(T, N)` so each TAC is fitted with its matching AIF and sample-time column.
+
+KinePET always interprets `time` directly as minutes. Convert seconds to minutes before fitting.
 
 ```python
 import numpy as np

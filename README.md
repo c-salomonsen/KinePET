@@ -52,7 +52,7 @@ The solver works on flattened TAC batches.
 Required files:
 
 - `tacs.npy`: shape `(T, N)`
-- `time.npy`: shape `(T,)`, `(T, 1)`, or `(T, N)`
+- `time.npy`: shape `(T,)`, `(T, 1)`, or `(T, N)`, in minutes
 - `aif.npy`: shape `(T,)`, `(T, 1)`, or `(T, N)`
 
 Interpretation of `aif.npy`:
@@ -70,7 +70,7 @@ Optional:
 
 - `weights.npy`: shape `(T,)`, `(T, 1)`, or `(T, N)`
 
-Time is interpreted as minutes. If the maximum time value is greater than `60`, the solver assumes the input is in seconds and converts to minutes internally.
+Time is always interpreted directly as minutes. The solver does not infer seconds from large values and does not perform automatic unit conversion. Convert frame times to minutes before fitting.
 
 ## Build and install
 

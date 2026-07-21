@@ -34,7 +34,7 @@ INPUT/
   aif.npy
 ```
 
-`time.npy` may be `(T,)`, `(T, 1)`, or `(T, N)`. If `aif.npy` is `(T, N)`, `time.npy` must also be `(T, N)` so each TAC column is fitted with its matching AIF and sample times.
+`time.npy` may be `(T,)`, `(T, 1)`, or `(T, N)` and is always interpreted in minutes. KinePET does not infer seconds or rescale large values. If `aif.npy` is `(T, N)`, `time.npy` must also be `(T, N)` so each TAC column is fitted with its matching AIF and sample times.
 
 Optional weights can be passed with `--weights-file`:
 

@@ -12,9 +12,11 @@ fit = kinepet.fit_one_tac(
 )
 ```
 
-`tac`, `time`, `aif`, and optional `weights` must all be one-dimensional arrays with the same length.
+`tac`, `time`, `aif`, and optional `weights` must all be one-dimensional arrays with the same length. `time` is always interpreted directly as minutes.
 
 The options match `fit_tacs()`, except there is no `threads` argument because only one TAC is fitted.
+
+Convert seconds to minutes before calling `fit_one_tac()`.
 
 ## Accessing results
 

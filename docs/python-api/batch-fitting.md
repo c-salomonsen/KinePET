@@ -31,7 +31,7 @@ fit = kinepet.fit_tacs(
 | Argument | Shape or type | Description |
 | --- | --- | --- |
 | `tacs` | `(T, N)` | TAC matrix. Each column is one TAC. |
-| `time` | `(T,)`, `(T, 1)`, or `(T, N)` | Frame times. Values are interpreted as minutes unless `max(time) > 60`, in which case seconds are converted internally. |
+| `time` | `(T,)`, `(T, 1)`, or `(T, N)` | Frame times in minutes. KinePET does not infer seconds or rescale large values, so callers must convert seconds to minutes before fitting. |
 | `aif` | `(T,)`, `(T, 1)`, or `(T, N)` | Arterial input function. A vector or single-column array is shared by all TACs. `(T, N)` provides one AIF per TAC and requires `time` to also be `(T, N)`. |
 | `weights` | `None`, `(T,)`, `(T, 1)`, or `(T, N)` | Optional residual weights. Shared and per-TAC semantics match `aif`. |
 | `model` | `"irr"` or `"rev"` | Kinetic model name. |
@@ -57,6 +57,8 @@ fit = kinepet.fit_tacs(
 ```
 
 In the per-TAC case, column `i` is fitted as `time_matrix[:, i]`, `aif_matrix[:, i]`, and `tacs[:, i]`.
+
+All time columns are interpreted in minutes, even when a scan extends beyond 60 minutes.
 
 ## Optional fitted parameters
 

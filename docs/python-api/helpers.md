@@ -19,7 +19,7 @@ pred = kinepet.evaluate_model(
 )
 ```
 
-`time` and `aif` must be one-dimensional arrays with the same length. The returned array has shape `(T,)`.
+`time` and `aif` must be one-dimensional arrays with the same length. `time`, `delay`, and `dispersion` are interpreted in minutes. The returned array has shape `(T,)`.
 
 ## `default_bounds`
 
@@ -52,11 +52,11 @@ Current defaults:
 
 ## `default_frame_weights`
 
-Generate the solver's default frame weights for a time vector:
+Generate the solver's default frame weights for a time vector in minutes:
 
 ```python
 weights = kinepet.default_frame_weights(time)
 fit = kinepet.fit_tacs(tacs, time, aif, weights=weights, model="rev")
 ```
 
-If `weights=None`, the batch fitter uses default frame weights internally.
+If `weights=None`, the batch fitter uses default frame weights internally. Time values are not rescaled before weights are computed.

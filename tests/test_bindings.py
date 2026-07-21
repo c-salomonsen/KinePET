@@ -88,6 +88,33 @@ def test_fit_tacs_recovers_irreversible_batch_with_per_tac_aif() -> None:
     assert np.all(np.isfinite(fit.rmse))
 
 
+def test_fit_tacs_interprets_long_scan_times_as_minutes() -> None:
+    time = np.array(
+        [0.0, 2.0, 5.0, 10.0, 20.0, 35.0, 50.0, 70.0, 90.0, 120.0],
+        dtype=np.float64,
+    )
+    aif = 9.0 * np.exp(-time / 4.0) + 2.0 * np.exp(-time / 45.0)
+    truth = {
+        "K1": 0.11,
+        "k2": 0.13,
+        "k3": 0.04,
+        "vB": 0.05,
+    }
+    tac = kinepet.evaluate_model(time, aif, model="irr", **truth)
+    tacs = tac[:, None]
+
+    fit = kinepet.fit_tacs(tacs, time, aif, model="irr", max_iterations=120)
+
+    assert_allclose(fit.K1[0], truth["K1"], atol=5e-3)
+    assert_allclose(fit.k2[0], truth["k2"], atol=5e-3)
+    assert_allclose(fit.k3[0], truth["k3"], atol=5e-3)
+    assert_allclose(fit.vB[0], truth["vB"], atol=5e-3)
+    assert_allclose(
+        kinepet.default_frame_weights(time),
+        np.sqrt([2.0, 2.5, 4.0, 7.5, 12.5, 15.0, 17.5, 20.0, 25.0, 30.0]),
+    )
+
+
 def test_fit_tacs_requires_per_tac_time_for_per_tac_aif() -> None:
     time = make_time()
     tacs = np.zeros((time.size, 2), dtype=np.float64)

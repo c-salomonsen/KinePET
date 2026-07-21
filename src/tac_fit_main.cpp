@@ -44,7 +44,7 @@ void print_usage() {
       << "Usage: tcm_fit_tacs --input-dir DIR --output-dir DIR --model rev|irr [options]\n"
       << "Inputs:\n"
       << "  tacs.npy  Shape (T, N)\n"
-      << "  time.npy  Shape (T,), (T,1), or (T,N). Use (T,N) with per-TAC AIFs.\n"
+      << "  time.npy  Shape (T,), (T,1), or (T,N), in minutes. Use (T,N) with per-TAC AIFs.\n"
       << "  aif.npy   Shape (T,), (T,1), or (T,N)\n"
       << "Options:\n"
       << "  --fit-vb 0|1           Fit blood volume fraction (default: 1)\n"
