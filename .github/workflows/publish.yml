@@ -109,5 +109,4 @@ jobs:
         env:
           UV_PUBLISH_USERNAME: ${{ secrets.UV_PUBLISH_USERNAME }}
           UV_PUBLISH_PASSWORD: ${{ secrets.UV_PUBLISH_PASSWORD }}
-          UV_PUBLISH_CHECK_URL: https://pypi.salodev.no/simple/
         run: uv publish --index salodev-index --no-attestations dist/*
