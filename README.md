@@ -16,7 +16,7 @@ The solver is available through:
 
 Supported Python versions for the published package:
 
-- `3.10+`
+- `3.11+`
 
 The old image-oriented fitting pipeline has been removed on purpose. Image preprocessing, masking, postprocessing, and map reconstruction are expected to live in Python outside the core solver.
 

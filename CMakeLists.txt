@@ -61,7 +61,7 @@ if(TCM_ENABLE_PYTHON_BINDINGS)
     set(DEV_MODULE Development.Module)
   endif()
 
-  find_package(Python 3.10 COMPONENTS Interpreter ${DEV_MODULE} REQUIRED)
+  find_package(Python 3.11 COMPONENTS Interpreter ${DEV_MODULE} REQUIRED)
 
   execute_process(
     COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir

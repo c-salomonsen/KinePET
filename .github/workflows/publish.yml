@@ -60,7 +60,7 @@ jobs:
 
       - name: Build wheels
         env:
-          CIBW_BUILD: cp310-* cp311-* cp312-* cp313-*
+          CIBW_BUILD: cp311-* cp312-* cp313-*
           CIBW_BUILD_FRONTEND: pip
           CIBW_BUILD_VERBOSITY: 1
           CIBW_TEST_COMMAND: python -c "import kinepet; print(kinepet.__name__)"
