@@ -1,0 +1,96 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python tests (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+
+      - name: Install dependencies
+        run: uv sync --group dev --python ${{ matrix.python-version }}
+
+      - name: Run Python tests
+        run: uv run --python ${{ matrix.python-version }} python -m pytest -q
+
+  cli:
+    name: CLI smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+
+      - name: Install dependencies
+        run: uv sync --group dev --python 3.11
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DPython_EXECUTABLE="$(uv run --python 3.11 python -c 'import sys; print(sys.executable)')"
+
+      - name: Build CLI and extension
+        run: cmake --build build --parallel
+
+      - name: Generate synthetic TAC batch
+        run: uv run --python 3.11 python scripts/make_synthetic_dataset.py "$RUNNER_TEMP/kinepet-input" --model rev --num-tacs 8
+
+      - name: Run CLI fit
+        run: ./build/tcm_fit_tacs --input-dir "$RUNNER_TEMP/kinepet-input" --output-dir "$RUNNER_TEMP/kinepet-output" --model rev --threads 1 --max-iter 80
+
+      - name: Verify CLI outputs
+        env:
+          FIT_OUTPUT: ${{ runner.temp }}/kinepet-output
+        run: |
+          uv run --python 3.11 python - <<'PY'
+          import os
+          from pathlib import Path
+
+          import numpy as np
+
+          output = Path(os.environ["FIT_OUTPUT"])
+          for name in ("K1", "k2", "k3", "k4", "vB", "Ki", "rmse"):
+              values = np.load(output / f"{name}.npy")
+              assert values.shape == (8,), name
+              assert np.all(np.isfinite(values)), name
+
+          iterations = np.load(output / "iterations.npy")
+          status = np.load(output / "status.npy")
+          assert iterations.shape == (8,)
+          assert status.shape == (8,)
+          assert np.all(status != 5)
+          assert (output / "run.txt").is_file()
+          PY
