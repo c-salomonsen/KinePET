@@ -5,10 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-try:
-    from scripts.kinetics import Irreversible2TCMVB, Reversible2TCMVB
-except ModuleNotFoundError:  # pragma: no cover - direct script execution
-    from kinetics import Irreversible2TCMVB, Reversible2TCMVB
+from kinepet import evaluate_model
 
 
 def make_aif(time: np.ndarray) -> np.ndarray:
@@ -106,25 +103,21 @@ def main() -> None:
     params["delay"].fill(args.delay)
     params["dispersion"].fill(args.dispersion)
 
-    model = Reversible2TCMVB() if args.model == "rev" else Irreversible2TCMVB()
-    if args.model == "rev":
-        tacs = model(
-            effective_aif,
+    # Generate with the same compiled C++ forward model the solver fits, so a
+    # fitted batch recovers these parameters. A separate Python implementation
+    # would make the dataset a different target than the solver minimizes.
+    n_tacs = len(params["K1"])
+    tacs = np.empty((time.size, n_tacs), dtype=np.float64)
+    for i in range(n_tacs):
+        tacs[:, i] = evaluate_model(
             time,
-            K1=params["K1"],
-            k2=params["k2"],
-            k3=params["k3"],
-            k4=params["k4"],
-            vB=params["vB"],
-        )
-    else:
-        tacs = model(
             effective_aif,
-            time,
-            K1=params["K1"],
-            k2=params["k2"],
-            k3=params["k3"],
-            vB=params["vB"],
+            model=args.model,
+            K1=float(params["K1"][i]),
+            k2=float(params["k2"][i]),
+            k3=float(params["k3"][i]),
+            k4=float(params["k4"][i]) if args.model == "rev" else 0.0,
+            vB=float(params["vB"][i]),
         )
 
     if args.noise_std > 0.0:

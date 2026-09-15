@@ -9,12 +9,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from kinepet import fit_tacs
-
-try:
-    from scripts.kinetics import Irreversible2TCMVB, Reversible2TCMVB
-except ModuleNotFoundError:  # pragma: no cover - direct script execution
-    from kinetics import Irreversible2TCMVB, Reversible2TCMVB
+from kinepet import evaluate_model, fit_tacs
 
 
 ModelName = Literal["irr", "rev"]
@@ -83,8 +78,13 @@ def generate_time(frame_protocol: tuple[tuple[int, int], ...], dt_s: float) -> t
 
 
 def generate_curves(df: pd.DataFrame, dt_s: float, tinj_s: float, model: ModelName) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    compartment_model = Reversible2TCMVB() if model == "rev" else Irreversible2TCMVB()
+    """Generate a synthetic TAC batch from a parameter table.
 
+    The forward model is ``kinepet.evaluate_model``, i.e. the same compiled C++
+    code the solver fits. Generating with a separate Python implementation would
+    make the dataset a different target from the one the solver minimizes, which
+    biases every recovered parameter even on noiseless data.
+    """
     t_fine_min, t_fine_s, time_min = generate_time(TIME_PROTOCOL, dt_s)
     frame_durations_s = np.concatenate(
         [np.full(n_frames, frame_dur, dtype=np.float64) for n_frames, frame_dur in TIME_PROTOCOL]
@@ -94,11 +94,10 @@ def generate_curves(df: pd.DataFrame, dt_s: float, tinj_s: float, model: ModelNa
     T = len(time_min)
     aif = np.empty((T, n), dtype=np.float64)
     tacs = np.empty((T, n), dtype=np.float64)
+    time_min = np.ascontiguousarray(time_min)
 
     for j, row in enumerate(df.itertuples(index=False)):
         A1m = float(row.A1m)
-        A2m = float(row.A2m)
-        A3m = float(row.A3m)
         curve_aif = generate_aif(
             t_fine_min,
             t_fine_s,
@@ -107,33 +106,23 @@ def generate_curves(df: pd.DataFrame, dt_s: float, tinj_s: float, model: ModelNa
             tinj_s=tinj_s,
             tau=float(row.TAUm),
             A1=A1m,
-            r2=A2m / A1m,
-            r3=A3m / A1m,
+            r2=float(row.A2m) / A1m,
+            r3=float(row.A3m) / A1m,
             L1=float(row.L1m),
             L2=float(row.L2m),
             L3=float(row.L3m),
         )
         aif[:, j] = curve_aif
-
-        if model == "rev":
-            tacs[:, j] = compartment_model(
-                curve_aif,
-                time_min,
-                K1=np.array([float(row.K1)]),
-                k2=np.array([float(row.k2)]),
-                k3=np.array([float(row.k3)]),
-                k4=np.array([float(row.k4)]),
-                vB=np.array([float(row.vB)]),
-            ).reshape(-1)
-        else:
-            tacs[:, j] = compartment_model(
-                curve_aif,
-                time_min,
-                K1=np.array([float(row.K1)]),
-                k2=np.array([float(row.k2)]),
-                k3=np.array([float(row.k3)]),
-                vB=np.array([float(row.vB)]),
-            ).reshape(-1)
+        tacs[:, j] = evaluate_model(
+            time_min,
+            np.ascontiguousarray(curve_aif),
+            model=model,
+            K1=float(row.K1),
+            k2=float(row.k2),
+            k3=float(row.k3),
+            k4=float(row.k4) if model == "rev" else 0.0,
+            vB=float(row.vB),
+        )
 
     time_out = np.repeat(time_min[:, None], aif.shape[1], axis=1)
     return tacs, aif, time_out
