@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Literal
+from time import perf_counter
+import logging
 
 import numpy as np
 import pandas as pd
@@ -133,7 +135,8 @@ def generate_curves(df: pd.DataFrame, dt_s: float, tinj_s: float, model: ModelNa
                 vB=np.array([float(row.vB)]),
             ).reshape(-1)
 
-    return tacs, aif, time_min
+    time_out = np.repeat(time_min[:, None], aif.shape[1], axis=1)
+    return tacs, aif, time_out
 
 
 def main() -> None:
@@ -146,14 +149,27 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=0, help="Number of threads to use for fitting (default: all available)")
     parser.add_argument("--max-iterations", type=int, default=40, help="Maximum number of iterations for fitting")
     parser.add_argument("--csv-sep", type=str, default=";", help="Separator used in the input CSV file (default: ';')")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbosity")
     args = parser.parse_args()
 
+    # Logger setup
+    logger = logging.getLogger(__name__)
+    console_handler = logging.StreamHandler()
+    loglevel = logging.DEBUG if args.verbose else logging.INFO
+    logger.setLevel(loglevel)
+    console_handler.setLevel(loglevel)
+    logger.addHandler(console_handler)
+
     df = pd.read_csv(args.INPUT_FILE, sep=args.csv_sep)
+    logger.debug(f"Read csv: {args.INPUT_FILE}, rows: {len(df)}")
 
     model: ModelName = args.model
 
     tacs, aifs, times = generate_curves(df, dt_s=DT_S, tinj_s=TINJ_S, model=model)
 
+    logger.debug(f"Generated curves. {tacs.shape = }, {aifs.shape = }, {times.shape = }")
+
+    start = perf_counter()
     fit = fit_tacs(
         tacs,
         times,
@@ -164,6 +180,9 @@ def main() -> None:
         threads=args.threads,
         max_iterations=args.max_iterations,
     )
+    duration = perf_counter() - start
+
+    logger.info(f"Completed {fit.fitted_tacs} / {len(fit.status)} successful fits. Took {duration:.6f} s")
 
     out_df = df.copy()
     out_df["K1_fit"] = fit.K1
@@ -178,6 +197,7 @@ def main() -> None:
     out_df["status_fit"] = fit.status
 
     out_df.to_csv(args.OUTPUT_FILE, index=False, sep=args.csv_sep)
+    logger.debug(f"Saved results to csv: {args.OUTPUT_FILE}.")
 
 if __name__ == "__main__":
     main()
