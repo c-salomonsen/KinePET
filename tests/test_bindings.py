@@ -7,13 +7,25 @@ import kinepet
 
 
 def exp_conv_step(z: float, rate: float, dt: float, c0: float, c1: float) -> float:
+    """Independent reimplementation of the solver's exact convolution step.
+
+    Mirrors ``src/tcm_model.cpp`` including the power-series branch, which is
+    required for the reversible model: its slow eigenvalue is a product ratio
+    a2 = 2*k2*k4/(s + sqrt(s^2 - 4*k2*k4)) that vanishes when k2 or k4 is
+    small, and the direct closed form of ``i1`` cancels catastrophically there.
+    """
     if dt <= 0.0:
         return z
     if abs(rate) < 1e-12:
         return z + 0.5 * (c0 + c1) * dt
-    decay = np.exp(-rate * dt)
-    i0 = (1.0 - decay) / rate
-    i1 = (1.0 - decay * (1.0 + rate * dt)) / (rate**2)
+    x = rate * dt
+    decay = np.exp(-x)
+    i0 = -np.expm1(-x) / rate
+    if abs(x) < 1e-3:
+        i1 = dt * dt * (0.5 + x * (-1.0 / 3.0 + x * (0.125
+              + x * (-1.0 / 30.0 + x * (1.0 / 144.0)))))
+    else:
+        i1 = (1.0 - decay * (1.0 + x)) / (rate**2)
     slope = (c1 - c0) / dt
     return decay * z + c1 * i0 - slope * i1
 
@@ -209,3 +221,78 @@ def test_fit_tacs_rejects_invalid_aif_columns() -> None:
         assert "aif second dimension" in str(exc)
     else:
         raise AssertionError("Expected fit_tacs() to reject invalid aif shape")
+
+
+def test_reversible_model_stays_accurate_as_k2_and_k4_vanish() -> None:
+    """Regression for the ``exp_conv_step`` cancellation hole.
+
+    The reversible slow eigenvalue is the product ratio
+    ``a2 = 2*k2*k4 / (s + sqrt(s^2 - 4*k2*k4))``, which vanishes whenever k2 or
+    k4 does (the irreversible rate k2+k3 is a sum and never does). The direct
+    closed form of ``i1 = (1 - e^-x(1+x)) / rate^2`` cancels catastrophically
+    for small rates, so the model used to lose the linear-in-k4 behaviour
+    entirely: at k4=1e-10 the old build was off by 7.6e4 in absolute terms.
+
+    A correct implementation is smooth in that limit, i.e. the deviation from
+    the k4=0 (resp. k2=0) curve must fall off linearly with the tiny parameter.
+    """
+    time = make_time()
+    aif = 12.0 * np.exp(-time / 0.3) + 1.5 * np.exp(-time / 6.0)
+    base_kwargs = {"model": "rev", "K1": 0.05, "k3": 0.1, "vB": 0.03}
+
+    # k4 -> 0 at fixed k2: deviation must shrink linearly with k4.
+    at_zero = kinepet.evaluate_model(time, aif, k2=0.1, k4=0.0, **base_kwargs)
+    ratios = []
+    for k4 in (1e-6, 1e-8, 1e-10):
+        dev = np.max(np.abs(kinepet.evaluate_model(time, aif, k2=0.1, k4=k4,
+                                                   **base_kwargs) - at_zero))
+        ratios.append(dev / k4)
+    # A constant ratio across ten decades is the signature of correct behaviour;
+    # the buggy build's ratio grew by ~8e17 over the same range.
+    assert_allclose(ratios, ratios[0], rtol=1e-3,
+                    err_msg=f"k4 -> 0 is not smooth; deviation/k4 = {ratios}")
+
+    # k2 -> 0 at fixed k4.
+    at_zero = kinepet.evaluate_model(time, aif, k2=0.0, k4=0.1, **base_kwargs)
+    ratios = []
+    for k2 in (1e-6, 1e-8, 1e-10):
+        dev = np.max(np.abs(kinepet.evaluate_model(time, aif, k2=k2, k4=0.1,
+                                                   **base_kwargs) - at_zero))
+        ratios.append(dev / k2)
+    assert_allclose(ratios, ratios[0], rtol=1e-3,
+                    err_msg=f"k2 -> 0 is not smooth; deviation/k2 = {ratios}")
+
+
+def test_reversible_warm_start_is_a_good_starting_point() -> None:
+    """Regression for the reversible branch of ``linear_warm_start``.
+
+    It divided ``p5`` by the wrong bracket and then built its quadratic from
+    ``k3 + k4`` instead of ``k3``, which shrank the recovered root sum to about
+    ``k2`` (k2 ~18% low, k4 ~21% high, k3 ~2x high) and made the inversion bail
+    out on ~28% of samples. The LM solver still converges from a bad start given
+    enough iterations, so the defect is not visible in the converged fit; it is
+    visible in how good the START is. A tight iteration budget isolates that:
+    with one iteration the result is essentially the starting point.
+    """
+    time = make_time()
+    aif = 12.0 * np.exp(-time / 0.3) + 1.5 * np.exp(-time / 6.0)
+    truth = {"K1": 0.09, "k2": 0.22, "k3": 0.11, "k4": 0.06, "vB": 0.04}
+    tac = kinepet.evaluate_model(time, aif, model="rev", **truth)
+
+    warm = kinepet.fit_one_tac(tac, time, aif, model="rev", max_iterations=1,
+                               use_linear_warm_start=True)
+    cold = kinepet.fit_one_tac(tac, time, aif, model="rev", max_iterations=1,
+                               use_linear_warm_start=False)
+
+    # The warm start must be far better than the flat default at equal budget.
+    assert warm.rmse < 0.25 * cold.rmse, (
+        f"warm start barely beats the default guess: warm rmse {warm.rmse}, "
+        f"cold rmse {cold.rmse}")
+
+    # And a converged fit from it must still recover the truth.
+    fit = kinepet.fit_one_tac(tac, time, aif, model="rev", max_iterations=200,
+                              use_linear_warm_start=True)
+    assert fit.status_code in (1, 2, 3)
+    for name in ("K1", "k2", "k3", "k4", "vB"):
+        assert abs(getattr(fit, name) - truth[name]) < 5e-3, (
+            f"{name}: got {getattr(fit, name)}, truth {truth[name]}")

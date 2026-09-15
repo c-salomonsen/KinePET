@@ -253,5 +253,18 @@ Current pytest coverage checks:
 ## Notes
 
 - The nonlinear solver is custom C++, not SciPy TRF copied line-for-line.
-- The model is evaluated on the native non-uniform time grid with piecewise-linear AIF handling.
-- Delay and dispersion support are available, but simultaneous estimation is still less stable than the core kinetic parameters on difficult curves.
+- The C++ model integrates the piecewise-linear AIF with the exact exponential
+  step (`src/tcm_model.cpp`, `exp_conv_step`). This is exact for the
+  piecewise-linear interpolant and agrees with an ODE integration
+  (`scipy.integrate.solve_ivp`) to machine precision, including for very small
+  rate constants.
+- `scripts/kinetics.py` approximates the same convolution with a per-frame
+  trapezoid recursion. That is a different, lower-order quadrature: on the
+  repo's own 42-frame protocol (frames up to 5 min) it deviates from the C++
+  model by ~6% of signal RMS. **Generate synthetic data with `kinetics.py` and
+  fit it with the C++ solver, and the recovered parameters are biased** (on the
+  4k reversible dataset: `k3` ~1.5x, `k4` ~1.2x, `k2` ~1.08x high) even on
+  noiseless data. Use `kinetics.py` for plotting or reference comparison, not
+  as the generating model when the C++ solver is the thing under test.
+- Delay and dispersion support are available, but simultaneous estimation is
+  still less stable than the core kinetic parameters on difficult curves.

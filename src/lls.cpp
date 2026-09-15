@@ -144,22 +144,21 @@ WarmStartResult linear_warm_start(
         return result;
       }
 
-      params.K1 = (p4 + p1 * p3) / denom;
+      // D0 = p4 + p1*p3 = (1 - vB) * K1.
+      const double d0 = p4 + p1 * p3;
+      params.K1 = d0 / denom;
       if (params.K1 <= eps) {
         return result;
       }
-      params.k3 = p5 / (p4 + p1 * p3 + eps) + p3 * p2;
-      const double b = p1 + params.k3;
-      const double c = -p2;
-      const double disc = b * b - 4.0 * c;
-      if (disc < 0.0) {
+
+      // s34 = k3 + k4, from (p5 + p3*p2) - d0 * s34 = 0.
+      const double s34 = (p5 + p3 * p2) / d0;
+      params.k2 = -p1 - s34;
+      if (params.k2 <= eps) {
         return result;
       }
-      const double sqrt_disc = std::sqrt(disc);
-      const double root1 = (-b + sqrt_disc) / 2.0;
-      const double root2 = (-b - sqrt_disc) / 2.0;
-      params.k2 = std::max(root1, root2);
-      params.k4 = std::min(root1, root2);
+      params.k4 = -p2 / params.k2;
+      params.k3 = s34 - params.k4;
       params.vB = p3;
     }
   } else {
