@@ -7,7 +7,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "kinepet"
-version = "0.3.2"
+version = "0.4.0.dev1"
 description = "TAC-based nonlinear fitting for dynamic PET two-tissue compartment models"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,7 +26,11 @@ docs = [
 ]
 extra = [
     "lls>=0.5.0",
+    "marimo>=0.24.2",
+    "matplotlib>=3.11.2",
     "pandas>=3.0.2",
+    "scipy>=1.17.1",
+    "seaborn[stats]>=0.13.2",
 ]
 
 [[tool.uv.index]]
