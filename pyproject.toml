@@ -42,6 +42,9 @@ explicit = true
 [tool.scikit-build]
 wheel.packages = ["kinepet"]
 
+[tool.scikit-build.cmake.define]
+BUILD_TESTING = "OFF"
+
 [[tool.uv.index]]
 url = "https://pypi.salodev.no/simple"
 

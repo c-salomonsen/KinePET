@@ -264,7 +264,7 @@ def test_reversible_model_stays_accurate_as_k2_and_k4_vanish() -> None:
 
 
 def test_reversible_warm_start_is_a_good_starting_point() -> None:
-    """Regression for the reversible branch of ``linear_warm_start``.
+    """Regression for the reversible formulation of ``warm_start``.
 
     It divided ``p5`` by the wrong bracket and then built its quadratic from
     ``k3 + k4`` instead of ``k3``, which shrank the recovered root sum to about

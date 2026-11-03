@@ -113,3 +113,14 @@ def test_fixed_model_supplies_vascular_fraction_for_evaluation(model_type, name)
     # The default FittedVB evaluation keeps the existing numeric default, .05.
     assert_array_equal(kinepet.evaluate_model(time, aif, model=model_type(), **params),
                        kinepet.evaluate_model(time, aif, model=name, **params))
+
+
+@pytest.mark.parametrize("first_time", [0., .02])
+def test_repeated_root_reversible_fallback_matches_one_tissue_limit(first_time):
+    time = np.linspace(first_time, 30., 301)
+    aif = 12. * np.exp(-time / .3) + 1.5 * np.exp(-time / 6.)
+    # k3=0 makes b identically zero; k2=k4 selects the repeated-root fallback.
+    common = dict(K1=.09, k2=.2, k3=0., vB=.04)
+    rev = kinepet.evaluate_model(time, aif, model=kinepet.Reversible2TCM(), k4=.2, **common)
+    irr = kinepet.evaluate_model(time, aif, model=kinepet.Irreversible2TCM(), **common)
+    np.testing.assert_allclose(rev, irr, rtol=1e-8, atol=1e-10)
