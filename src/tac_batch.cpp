@@ -1,6 +1,7 @@
 #include "tac_batch.hpp"
 
 #include "tcm_model.hpp"
+#include "frame_weights.hpp"
 
 #include <algorithm>
 #include <cmath>

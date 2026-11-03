@@ -9,7 +9,7 @@ import kinepet
 def exp_conv_step(z: float, rate: float, dt: float, c0: float, c1: float) -> float:
     """Independent reimplementation of the solver's exact convolution step.
 
-    Mirrors ``src/tcm_model.cpp`` including the power-series branch, which is
+    Mirrors ``src/models/convolution.cpp`` including the power-series branch, which is
     required for the reversible model: its slow eigenvalue is a product ratio
     a2 = 2*k2*k4/(s + sqrt(s^2 - 4*k2*k4)) that vanishes when k2 or k4 is
     small, and the direct closed form of ``i1`` cancels catastrophically there.

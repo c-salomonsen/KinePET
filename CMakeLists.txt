@@ -17,6 +17,12 @@ option(TCM_ENABLE_PYTHON_BINDINGS "Build the nanobind Python extension" ON)
 add_library(
   tcm_solver_core
   src/model.cpp
+  src/parameters.cpp
+  src/aif.cpp
+  src/frame_weights.cpp
+  src/models/convolution.cpp
+  src/models/irreversible.cpp
+  src/models/reversible.cpp
   src/lls.cpp
   src/lls/regression.cpp
   src/lls/irreversible.cpp

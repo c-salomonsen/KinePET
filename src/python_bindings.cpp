@@ -1,6 +1,7 @@
 #include "solver.hpp"
 #include "tac_batch.hpp"
 #include "tcm_model.hpp"
+#include "frame_weights.hpp"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>

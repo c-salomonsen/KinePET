@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tcm_model.hpp"
+#include "parameters.hpp"
 
 namespace tcm::lls {
 

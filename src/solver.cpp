@@ -1,6 +1,7 @@
 #include "solver.hpp"
 
 #include "small_linalg.hpp"
+#include "tcm_model.hpp"
 
 #include <algorithm>
 #include <array>
