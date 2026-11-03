@@ -18,6 +18,9 @@ add_library(
   tcm_solver_core
   src/model.cpp
   src/lls.cpp
+  src/lls/regression.cpp
+  src/lls/irreversible.cpp
+  src/lls/reversible.cpp
   src/solver.cpp
   src/tac_batch.cpp
   src/tcm_model.cpp

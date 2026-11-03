@@ -1,221 +1,42 @@
 #include "lls.hpp"
+#include "lls/formulations.hpp"
 
-#include "small_linalg.hpp"
-
-#include <algorithm>
-#include <array>
 #include <cmath>
-#include <limits>
 
 namespace tcm {
 namespace {
 
-std::vector<double> cumulative_trapezoid(
-    const std::vector<double>& signal,
-    const std::vector<double>& time_minutes) {
-  const std::size_t n = signal.size();
-  std::vector<double> integral(n, 0.0);
-  for (std::size_t i = 1; i < n; ++i) {
-    const double dt = time_minutes[i] - time_minutes[i - 1];
-    integral[i] = integral[i - 1] + 0.5 * (signal[i] + signal[i - 1]) * dt;
-  }
-  return integral;
-}
-
-bool solve_ridge(
-    const std::vector<std::vector<double>>& design,
-    const std::vector<double>& y,
-    double ridge,
-    std::array<double, kMaxParameterCount>& coeffs,
-    int p) {
-  std::array<double, kMaxMatrixSize> gram{};
-  std::array<double, kMaxParameterCount> rhs{};
-  gram.fill(0.0);
-  rhs.fill(0.0);
-
-  for (std::size_t row = 0; row < y.size(); ++row) {
-    for (int i = 0; i < p; ++i) {
-      rhs[static_cast<std::size_t>(i)] += design[row][static_cast<std::size_t>(i)] * y[row];
-      for (int j = 0; j < p; ++j) {
-        gram[static_cast<std::size_t>(i * kMaxParameterCount + j)] +=
-            design[row][static_cast<std::size_t>(i)] * design[row][static_cast<std::size_t>(j)];
-      }
-    }
-  }
-
-  for (int i = 0; i < p; ++i) {
-    gram[static_cast<std::size_t>(i * kMaxParameterCount + i)] += ridge;
-  }
-
-  return solve_linear_system(gram, rhs, p, coeffs);
-}
-
-bool finite_positive(double value) {
+bool finite_nonnegative(double value) {
   return std::isfinite(value) && value >= 0.0;
+}
+
+bool admissible_kinetics(const ParameterVector& params, const Model& model) {
+  return finite_nonnegative(params.K1) && finite_nonnegative(params.k2) &&
+      finite_nonnegative(params.k3) && std::isfinite(params.vB) &&
+      (!is_reversible(model) || finite_nonnegative(params.k4));
 }
 
 }  // namespace
 
-WarmStartResult linear_warm_start(
+WarmStartResult warm_start(
     const Model& model,
     const AifOptions& aif_options,
     const SolverBounds& bounds,
     const std::vector<double>& time_minutes,
     const std::vector<double>& aif,
     const std::vector<double>& tac) {
-  WarmStartResult result;
   if (time_minutes.size() != aif.size() || tac.size() != aif.size() || tac.size() < 4) {
-    return result;
+    return {};
   }
 
-  constexpr double ridge = 1e-6;
-  constexpr double eps = 1e-8;
+  const lls::LinearInputs data(time_minutes, aif, tac);
+  ParameterVector params = default_initial_guess(model, aif_options);
+  const bool recovered = std::visit([&](const auto& kinetics) {
+    return lls::estimate_linear_parameters(data, kinetics, params);
+  }, model);
+  if (!recovered || !admissible_kinetics(params, model)) return {};
 
-  const std::vector<double> i_cp = cumulative_trapezoid(aif, time_minutes);
-  const std::vector<double> i2_cp = cumulative_trapezoid(i_cp, time_minutes);
-
-  std::array<double, kMaxParameterCount> coeffs{};
-  coeffs.fill(0.0);
-  ParameterVector params = default_initial_guess(
-      model, aif_options);
-
-  if (fits_vb(model)) {
-    if (!is_reversible(model)) {
-      const std::vector<double> i_tac = cumulative_trapezoid(tac, time_minutes);
-      std::vector<std::vector<double>> x(tac.size(), std::vector<double>(4, 0.0));
-      for (std::size_t i = 0; i < tac.size(); ++i) {
-        x[i][0] = i_tac[i];
-        x[i][1] = aif[i];
-        x[i][2] = i_cp[i];
-        x[i][3] = i2_cp[i];
-      }
-      if (!solve_ridge(x, tac, ridge, coeffs, 4)) {
-        return result;
-      }
-
-      const double p1 = coeffs[0];
-      const double p2 = coeffs[1];
-      const double p3 = coeffs[2];
-      const double p4 = coeffs[3];
-      const double denom = 1.0 - p2;
-      if (std::abs(denom) <= eps) {
-        return result;
-      }
-      params.K1 = (p3 + p1 * p2) / denom;
-      if (params.K1 <= eps) {
-        return result;
-      }
-      params.k3 = p4 / (denom * params.K1 + eps);
-      params.k2 = -params.k3 - p1;
-      params.vB = p2;
-    } else {
-      const std::vector<double> i_tac = cumulative_trapezoid(tac, time_minutes);
-      const std::vector<double> i2_tac = cumulative_trapezoid(i_tac, time_minutes);
-      std::vector<std::vector<double>> x(tac.size(), std::vector<double>(5, 0.0));
-      for (std::size_t i = 0; i < tac.size(); ++i) {
-        x[i][0] = i_tac[i];
-        x[i][1] = i2_tac[i];
-        x[i][2] = aif[i];
-        x[i][3] = i_cp[i];
-        x[i][4] = i2_cp[i];
-      }
-      if (!solve_ridge(x, tac, ridge, coeffs, 5)) {
-        return result;
-      }
-
-      const double p1 = coeffs[0];
-      const double p2 = coeffs[1];
-      const double p3 = coeffs[2];
-      const double p4 = coeffs[3];
-      const double p5 = coeffs[4];
-      const double denom = 1.0 - p3;
-      if (std::abs(denom) <= eps) {
-        return result;
-      }
-
-      // D0 = p4 + p1*p3 = (1 - vB) * K1.
-      const double d0 = p4 + p1 * p3;
-      params.K1 = d0 / denom;
-      if (params.K1 <= eps) {
-        return result;
-      }
-
-      // s34 = k3 + k4, from (p5 + p3*p2) - d0 * s34 = 0.
-      const double s34 = (p5 + p3 * p2) / d0;
-      params.k2 = -p1 - s34;
-      if (params.k2 <= eps) {
-        return result;
-      }
-      params.k4 = -p2 / params.k2;
-      params.k3 = s34 - params.k4;
-      params.vB = p3;
-    }
-  } else {
-    const double vB = std::clamp(fixed_vb(model), 0.0, 0.95);
-    const double denom = std::max(1.0 - vB, eps);
-    std::vector<double> ct(tac.size(), 0.0);
-    for (std::size_t i = 0; i < tac.size(); ++i) {
-      ct[i] = (tac[i] - vB * aif[i]) / denom;
-    }
-
-    if (!is_reversible(model)) {
-      const std::vector<double> i_ct = cumulative_trapezoid(ct, time_minutes);
-      std::vector<std::vector<double>> x(tac.size(), std::vector<double>(3, 0.0));
-      for (std::size_t i = 0; i < tac.size(); ++i) {
-        x[i][0] = i_ct[i];
-        x[i][1] = i_cp[i];
-        x[i][2] = i2_cp[i];
-      }
-      if (!solve_ridge(x, ct, ridge, coeffs, 3)) {
-        return result;
-      }
-      params.K1 = coeffs[1];
-      if (params.K1 <= eps) {
-        return result;
-      }
-      params.k3 = coeffs[2] / (params.K1 + eps);
-      params.k2 = -params.k3 - coeffs[0];
-      params.vB = vB;
-    } else {
-      const std::vector<double> i_ct = cumulative_trapezoid(ct, time_minutes);
-      const std::vector<double> i2_ct = cumulative_trapezoid(i_ct, time_minutes);
-      std::vector<std::vector<double>> x(tac.size(), std::vector<double>(4, 0.0));
-      for (std::size_t i = 0; i < tac.size(); ++i) {
-        x[i][0] = i_ct[i];
-        x[i][1] = i2_ct[i];
-        x[i][2] = i_cp[i];
-        x[i][3] = i2_cp[i];
-      }
-      if (!solve_ridge(x, ct, ridge, coeffs, 4)) {
-        return result;
-      }
-      params.K1 = coeffs[2];
-      if (params.K1 <= eps) {
-        return result;
-      }
-      const double s = coeffs[3] / (params.K1 + eps);
-      params.k2 = -coeffs[0] - s;
-      if (std::abs(params.k2) <= eps) {
-        return result;
-      }
-      params.k4 = -coeffs[1] / params.k2;
-      params.k3 = s - params.k4;
-      params.vB = vB;
-    }
-  }
-
-  if (!finite_positive(params.K1) || !finite_positive(params.k2) || !finite_positive(params.k3) ||
-      !std::isfinite(params.vB) || (is_reversible(model) && !finite_positive(params.k4))) {
-    return result;
-  }
-
-  params = clip_to_bounds(
-      params,
-      model, aif_options,
-      bounds);
-  result.params = params;
-  result.valid = true;
-  return result;
+  return {clip_to_bounds(params, model, aif_options, bounds), true};
 }
 
 }  // namespace tcm

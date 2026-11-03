@@ -11,7 +11,7 @@ struct WarmStartResult {
   bool valid = false;
 };
 
-WarmStartResult linear_warm_start(
+WarmStartResult warm_start(
     const Model& model,
     const AifOptions& aif_options,
     const SolverBounds& bounds,

@@ -283,6 +283,36 @@ FitResult initial_result(
   return result;
 }
 
+// Initialization is independent of the shared nonlinear optimizer below.
+ParameterVector choose_initial_parameters(
+    const SolverOptions& options,
+    const std::vector<double>& time_minutes,
+    const std::vector<double>& aif,
+    const std::vector<double>& tac,
+    const ParameterVector* initial_guess) {
+  ParameterVector start = default_initial_guess(
+      options.model, options.aif);
+  if (initial_guess != nullptr) {
+    start = *initial_guess;
+  } else if (options.use_linear_warm_start) {
+    const WarmStartResult warm = warm_start(
+        options.model, options.aif,
+        options.bounds,
+        time_minutes,
+        aif,
+        tac);
+    if (warm.valid) {
+      start = warm.params;
+    }
+  }
+  start = clip_to_bounds(
+      start,
+      options.model, options.aif,
+      options.bounds);
+
+  return start;
+}
+
 FitResult fit_tac_impl(
     const SolverOptions& options,
     const std::vector<double>& time_minutes,
@@ -307,25 +337,8 @@ FitResult fit_tac_impl(
   work.plus_predicted.reserve(tac.size());
   work.minus_predicted.reserve(tac.size());
 
-  ParameterVector start = default_initial_guess(
-      options.model, options.aif);
-  if (initial_guess != nullptr) {
-    start = *initial_guess;
-  } else if (options.use_linear_warm_start) {
-    const WarmStartResult warm = linear_warm_start(
-        options.model, options.aif,
-        options.bounds,
-        time_minutes,
-        aif,
-        tac);
-    if (warm.valid) {
-      start = warm.params;
-    }
-  }
-  start = clip_to_bounds(
-      start,
-      options.model, options.aif,
-      options.bounds);
+  const ParameterVector start = choose_initial_parameters(
+      options, time_minutes, aif, tac, initial_guess);
 
   result = initial_result(options, time_minutes, aif, weights, tac, work, start);
   if (result.status == FitStatus::InvalidInput) {
