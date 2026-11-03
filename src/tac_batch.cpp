@@ -210,7 +210,7 @@ TacBatchResult fit_tac_batch(
         weights = default_frame_weights(time);
       }
 
-      const FitResult fit = fit_voxel(
+      const FitResult fit = fit_tac(
           solver_options,
           time,
           aif,
@@ -239,15 +239,15 @@ TacBatchResult fit_tac_batch(
     result.fitted_tacs += local_fitted;
   }
 
-  if (solver_options.model == ModelKind::Irreversible2TCM) {
+  if (!is_reversible(solver_options.model)) {
     std::fill(result.k4.begin(), result.k4.end(), 0.0);
   }
 
-  if (!solver_options.fit_delay && std::abs(solver_options.fixed_delay) <= 1e-12) {
+  if (!solver_options.aif.delay.fitted && std::abs(solver_options.aif.delay.fixed_value) <= 1e-12) {
     std::fill(result.delay.begin(), result.delay.end(), 0.0);
   }
 
-  if (!solver_options.fit_dispersion && std::abs(solver_options.fixed_dispersion) <= 1e-12) {
+  if (!solver_options.aif.dispersion.fitted && std::abs(solver_options.aif.dispersion.fixed_value) <= 1e-12) {
     std::fill(result.dispersion.begin(), result.dispersion.end(), 0.0);
   }
 

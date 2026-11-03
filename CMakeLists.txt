@@ -16,6 +16,7 @@ option(TCM_ENABLE_PYTHON_BINDINGS "Build the nanobind Python extension" ON)
 
 add_library(
   tcm_solver_core
+  src/model.cpp
   src/lls.cpp
   src/solver.cpp
   src/tac_batch.cpp

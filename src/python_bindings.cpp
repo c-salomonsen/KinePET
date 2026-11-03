@@ -58,16 +58,6 @@ std::size_t infer_columns(const CpuArray& array, std::size_t expected_rows, cons
   throw std::runtime_error(std::string(name) + " must be a 1D or 2D array");
 }
 
-tcm::ModelKind parse_model(const std::string& model) {
-  if (model == "rev") {
-    return tcm::ModelKind::Reversible2TCM;
-  }
-  if (model == "irr") {
-    return tcm::ModelKind::Irreversible2TCM;
-  }
-  throw std::runtime_error("model must be 'rev' or 'irr'");
-}
-
 tcm::SolverOptions make_solver_options(
     const std::string& model_name,
     bool fit_vb,
@@ -88,21 +78,13 @@ tcm::SolverOptions make_solver_options(
   }
 
   tcm::SolverOptions options;
-  options.model = parse_model(model_name);
-  options.fit_vb = fit_vb;
-  options.fixed_vb = fixed_vb;
-  options.fit_delay = fit_delay;
-  options.fixed_delay = fixed_delay;
-  options.fit_dispersion = fit_dispersion;
-  options.fixed_dispersion = fixed_dispersion;
+  options.model = tcm::make_model(model_name, tcm::blood_fraction_setting(fit_vb, fixed_vb));
+  options.aif.delay.fitted = fit_delay;
+  options.aif.delay.fixed_value = fixed_delay;
+  options.aif.dispersion.fitted = fit_dispersion;
+  options.aif.dispersion.fixed_value = fixed_dispersion;
   options.bounds = tcm::default_bounds(
-      options.model,
-      fit_vb,
-      fixed_vb,
-      fit_delay,
-      fixed_delay,
-      fit_dispersion,
-      fixed_dispersion);
+      options.model, options.aif);
   options.max_iterations = max_iterations;
   options.gradient_tolerance = gradient_tolerance;
   options.step_tolerance = step_tolerance;
@@ -149,13 +131,13 @@ nb::dict make_batch_result_dict(
   out[nb::str("weighted_cost")] = wrap_vector(raw->weighted_cost, owner);
   out[nb::str("iterations")] = wrap_vector(raw->iterations, owner);
   out[nb::str("status")] = wrap_vector(raw->status, owner);
-  if (options.model == tcm::ModelKind::Reversible2TCM) {
+  if (tcm::is_reversible(options.model)) {
     out[nb::str("k4")] = wrap_vector(raw->k4, owner);
   }
-  if (options.fit_delay || std::abs(options.fixed_delay) > 1e-12) {
+  if (options.aif.delay.fitted || std::abs(options.aif.delay.fixed_value) > 1e-12) {
     out[nb::str("delay")] = wrap_vector(raw->delay, owner);
   }
-  if (options.fit_dispersion || std::abs(options.fixed_dispersion) > 1e-12) {
+  if (options.aif.dispersion.fitted || std::abs(options.aif.dispersion.fixed_value) > 1e-12) {
     out[nb::str("dispersion")] = wrap_vector(raw->dispersion, owner);
   }
   out[nb::str("fitted_tacs")] = nb::int_(raw->fitted_tacs);
@@ -309,13 +291,13 @@ nb::dict fit_one_tac_impl(
   out[nb::str("weighted_cost")] = nb::float_(batch_result.weighted_cost[0]);
   out[nb::str("iterations")] = nb::int_(batch_result.iterations[0]);
   out[nb::str("status")] = nb::int_(batch_result.status[0]);
-  if (options.model == tcm::ModelKind::Reversible2TCM) {
+  if (tcm::is_reversible(options.model)) {
     out[nb::str("k4")] = nb::float_(batch_result.k4[0]);
   }
-  if (options.fit_delay || std::abs(options.fixed_delay) > 1e-12) {
+  if (options.aif.delay.fitted || std::abs(options.aif.delay.fixed_value) > 1e-12) {
     out[nb::str("delay")] = nb::float_(batch_result.delay[0]);
   }
-  if (options.fit_dispersion || std::abs(options.fixed_dispersion) > 1e-12) {
+  if (options.aif.dispersion.fitted || std::abs(options.aif.dispersion.fixed_value) > 1e-12) {
     out[nb::str("dispersion")] = nb::float_(batch_result.dispersion[0]);
   }
   return out;
@@ -347,7 +329,7 @@ nb::ndarray<nb::numpy, double, nb::ndim<1>> evaluate_model_impl(
 
   std::vector<double> predicted;
   const bool ok = tcm::evaluate_model(
-      parse_model(model),
+      tcm::make_model(model),
       params,
       copy_time_minutes(time),
       copy_array(aif),
@@ -372,20 +354,14 @@ nb::dict default_bounds_impl(
     double fixed_delay,
     bool fit_dispersion,
     double fixed_dispersion) {
-  const tcm::ModelKind kind = parse_model(model);
-  const tcm::SolverBounds bounds = tcm::default_bounds(
-      kind,
-      fit_vb,
-      fixed_vb,
-      fit_delay,
-      fixed_delay,
-      fit_dispersion,
-      fixed_dispersion);
-  const int count = tcm::active_parameter_count(kind, fit_vb, fit_delay, fit_dispersion);
+  const tcm::Model kinetics = tcm::make_model(model, tcm::blood_fraction_setting(fit_vb, fixed_vb));
+  const tcm::AifOptions aif_options{{fit_delay, fixed_delay}, {fit_dispersion, fixed_dispersion}};
+  const tcm::SolverBounds bounds = tcm::default_bounds(kinetics, aif_options);
+  const int count = tcm::active_parameter_count(kinetics, aif_options);
 
   nb::dict out;
   for (int index = 0; index < count; ++index) {
-    const std::string name = tcm::parameter_name(kind, fit_vb, fit_delay, fit_dispersion, index);
+    const std::string name = tcm::parameter_name(kinetics, aif_options, index);
     out[nb::str(name.c_str())] =
         nb::make_tuple(bounds.lower[static_cast<std::size_t>(index)], bounds.upper[static_cast<std::size_t>(index)]);
   }

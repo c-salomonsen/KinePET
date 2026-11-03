@@ -12,13 +12,8 @@ struct WarmStartResult {
 };
 
 WarmStartResult linear_warm_start(
-    ModelKind model,
-    bool fit_vb,
-    double fixed_vb,
-    bool fit_delay,
-    double fixed_delay,
-    bool fit_dispersion,
-    double fixed_dispersion,
+    const Model& model,
+    const AifOptions& aif_options,
     const SolverBounds& bounds,
     const std::vector<double>& time_minutes,
     const std::vector<double>& aif,

@@ -57,13 +57,8 @@ bool finite_positive(double value) {
 }  // namespace
 
 WarmStartResult linear_warm_start(
-    ModelKind model,
-    bool fit_vb,
-    double fixed_vb,
-    bool fit_delay,
-    double fixed_delay,
-    bool fit_dispersion,
-    double fixed_dispersion,
+    const Model& model,
+    const AifOptions& aif_options,
     const SolverBounds& bounds,
     const std::vector<double>& time_minutes,
     const std::vector<double>& aif,
@@ -82,16 +77,10 @@ WarmStartResult linear_warm_start(
   std::array<double, kMaxParameterCount> coeffs{};
   coeffs.fill(0.0);
   ParameterVector params = default_initial_guess(
-      model,
-      fit_vb,
-      fixed_vb,
-      fit_delay,
-      fixed_delay,
-      fit_dispersion,
-      fixed_dispersion);
+      model, aif_options);
 
-  if (fit_vb) {
-    if (model == ModelKind::Irreversible2TCM) {
+  if (fits_vb(model)) {
+    if (!is_reversible(model)) {
       const std::vector<double> i_tac = cumulative_trapezoid(tac, time_minutes);
       std::vector<std::vector<double>> x(tac.size(), std::vector<double>(4, 0.0));
       for (std::size_t i = 0; i < tac.size(); ++i) {
@@ -162,14 +151,14 @@ WarmStartResult linear_warm_start(
       params.vB = p3;
     }
   } else {
-    const double vB = std::clamp(fixed_vb, 0.0, 0.95);
+    const double vB = std::clamp(fixed_vb(model), 0.0, 0.95);
     const double denom = std::max(1.0 - vB, eps);
     std::vector<double> ct(tac.size(), 0.0);
     for (std::size_t i = 0; i < tac.size(); ++i) {
       ct[i] = (tac[i] - vB * aif[i]) / denom;
     }
 
-    if (model == ModelKind::Irreversible2TCM) {
+    if (!is_reversible(model)) {
       const std::vector<double> i_ct = cumulative_trapezoid(ct, time_minutes);
       std::vector<std::vector<double>> x(tac.size(), std::vector<double>(3, 0.0));
       for (std::size_t i = 0; i < tac.size(); ++i) {
@@ -216,19 +205,13 @@ WarmStartResult linear_warm_start(
   }
 
   if (!finite_positive(params.K1) || !finite_positive(params.k2) || !finite_positive(params.k3) ||
-      !std::isfinite(params.vB) || (model == ModelKind::Reversible2TCM && !finite_positive(params.k4))) {
+      !std::isfinite(params.vB) || (is_reversible(model) && !finite_positive(params.k4))) {
     return result;
   }
 
   params = clip_to_bounds(
       params,
-      model,
-      fit_vb,
-      fixed_vb,
-      fit_delay,
-      fixed_delay,
-      fit_dispersion,
-      fixed_dispersion,
+      model, aif_options,
       bounds);
   result.params = params;
   result.valid = true;

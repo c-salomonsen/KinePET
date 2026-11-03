@@ -27,9 +27,9 @@ void check_warm_starts(std::istream& expected, bool record) {
   for (bool reversible : {false, true}) {
     for (int blood_mode : {0, 1, 2}) {  // fitted, fixed zero, fixed nonzero
       for (bool positive_first_time : {false, true}) {
-        const auto model = reversible ? tcm::ModelKind::Reversible2TCM : tcm::ModelKind::Irreversible2TCM;
         const bool fit_vb = blood_mode == 0;
         const double fixed_vb = blood_mode == 1 ? 0.0 : 0.05;
+        const auto model = tcm::make_model(reversible ? "rev" : "irr", tcm::blood_fraction_setting(fit_vb, fixed_vb));
         std::vector<double> time = {0., .0833, .1667, .25, .3333, .5, .75, 1., 1.5, 2., 3., 5., 8., 12., 20., 30., 45.};
         if (positive_first_time) time[0] = .02;
         std::vector<double> aif;
@@ -37,8 +37,8 @@ void check_warm_starts(std::istream& expected, bool record) {
         tcm::ParameterVector truth{.09, .22, .11, reversible ? .06 : 0., fit_vb ? .04 : fixed_vb};
         std::vector<double> tac;
         require(tcm::evaluate_model(model, truth, time, aif, tac), "forward evaluation failed");
-        const auto bounds = tcm::default_bounds(model, fit_vb, fixed_vb, false, 0., false, 0.);
-        const auto warm = tcm::linear_warm_start(model, fit_vb, fixed_vb, false, 0., false, 0., bounds, time, aif, tac);
+        const auto bounds = tcm::default_bounds(model, {});
+        const auto warm = tcm::linear_warm_start(model, {}, bounds, time, aif, tac);
         const std::string label = std::string(reversible ? "rev" : "irr") + "_" +
             std::to_string(blood_mode) + "_" + (positive_first_time ? "positive" : "zero");
         const std::vector<double> values = {warm.valid ? 1. : 0., warm.params.K1, warm.params.k2,

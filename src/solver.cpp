@@ -41,13 +41,11 @@ struct Workspace {
 
 std::array<double, kMaxParameterCount> active_lower(
     const SolverBounds& bounds,
-    ModelKind model,
-    bool fit_vb,
-    bool fit_delay,
-    bool fit_dispersion) {
+    const Model& model,
+    const AifOptions& aif_options) {
   std::array<double, kMaxParameterCount> out{};
   out.fill(0.0);
-  const int n = active_parameter_count(model, fit_vb, fit_delay, fit_dispersion);
+  const int n = active_parameter_count(model, aif_options);
   for (int i = 0; i < n; ++i) {
     out[static_cast<std::size_t>(i)] = bounds.lower[static_cast<std::size_t>(i)];
   }
@@ -56,13 +54,11 @@ std::array<double, kMaxParameterCount> active_lower(
 
 std::array<double, kMaxParameterCount> active_upper(
     const SolverBounds& bounds,
-    ModelKind model,
-    bool fit_vb,
-    bool fit_delay,
-    bool fit_dispersion) {
+    const Model& model,
+    const AifOptions& aif_options) {
   std::array<double, kMaxParameterCount> out{};
   out.fill(0.0);
-  const int n = active_parameter_count(model, fit_vb, fit_delay, fit_dispersion);
+  const int n = active_parameter_count(model, aif_options);
   for (int i = 0; i < n; ++i) {
     out[static_cast<std::size_t>(i)] = bounds.upper[static_cast<std::size_t>(i)];
   }
@@ -88,23 +84,14 @@ ParameterVector u_to_params(
     const std::array<double, kMaxParameterCount>& u,
     const SolverOptions& options) {
   const int n = active_parameter_count(
-      options.model,
-      options.fit_vb,
-      options.fit_delay,
-      options.fit_dispersion);
+      options.model, options.aif);
   std::array<double, kMaxParameterCount> x{};
   const auto lower = active_lower(
       options.bounds,
-      options.model,
-      options.fit_vb,
-      options.fit_delay,
-      options.fit_dispersion);
+      options.model, options.aif);
   const auto upper = active_upper(
       options.bounds,
-      options.model,
-      options.fit_vb,
-      options.fit_delay,
-      options.fit_dispersion);
+      options.model, options.aif);
   for (int i = 0; i < n; ++i) {
     const double s = stable_sigmoid(u[static_cast<std::size_t>(i)]);
     x[static_cast<std::size_t>(i)] =
@@ -113,13 +100,7 @@ ParameterVector u_to_params(
   }
   return unpack_active(
       x,
-      options.model,
-      options.fit_vb,
-      options.fixed_vb,
-      options.fit_delay,
-      options.fixed_delay,
-      options.fit_dispersion,
-      options.fixed_dispersion);
+      options.model, options.aif);
 }
 
 bool evaluate_weighted_residuals(
@@ -266,23 +247,14 @@ FitResult initial_result(
   std::array<double, kMaxParameterCount> x{};
   pack_active(
       start_params,
-      options.model,
-      options.fit_vb,
-      options.fit_delay,
-      options.fit_dispersion,
+      options.model, options.aif,
       x);
   const auto lower = active_lower(
       options.bounds,
-      options.model,
-      options.fit_vb,
-      options.fit_delay,
-      options.fit_dispersion);
+      options.model, options.aif);
   const auto upper = active_upper(
       options.bounds,
-      options.model,
-      options.fit_vb,
-      options.fit_delay,
-      options.fit_dispersion);
+      options.model, options.aif);
   x_to_u(x, lower, upper, work.n_params, work.u);
 
   double cost = 0.0;
@@ -311,7 +283,7 @@ FitResult initial_result(
   return result;
 }
 
-FitResult fit_voxel_impl(
+FitResult fit_tac_impl(
     const SolverOptions& options,
     const std::vector<double>& time_minutes,
     const std::vector<double>& aif,
@@ -327,10 +299,7 @@ FitResult fit_voxel_impl(
 
   Workspace work;
   work.n_params = active_parameter_count(
-      options.model,
-      options.fit_vb,
-      options.fit_delay,
-      options.fit_dispersion);
+      options.model, options.aif);
   work.predicted.reserve(tac.size());
   work.residuals.reserve(tac.size());
   work.trial_predicted.reserve(tac.size());
@@ -339,24 +308,12 @@ FitResult fit_voxel_impl(
   work.minus_predicted.reserve(tac.size());
 
   ParameterVector start = default_initial_guess(
-      options.model,
-      options.fit_vb,
-      options.fixed_vb,
-      options.fit_delay,
-      options.fixed_delay,
-      options.fit_dispersion,
-      options.fixed_dispersion);
+      options.model, options.aif);
   if (initial_guess != nullptr) {
     start = *initial_guess;
   } else if (options.use_linear_warm_start) {
     const WarmStartResult warm = linear_warm_start(
-        options.model,
-        options.fit_vb,
-        options.fixed_vb,
-        options.fit_delay,
-        options.fixed_delay,
-        options.fit_dispersion,
-        options.fixed_dispersion,
+        options.model, options.aif,
         options.bounds,
         time_minutes,
         aif,
@@ -367,13 +324,7 @@ FitResult fit_voxel_impl(
   }
   start = clip_to_bounds(
       start,
-      options.model,
-      options.fit_vb,
-      options.fixed_vb,
-      options.fit_delay,
-      options.fixed_delay,
-      options.fit_dispersion,
-      options.fixed_dispersion,
+      options.model, options.aif,
       options.bounds);
 
   result = initial_result(options, time_minutes, aif, weights, tac, work, start);
@@ -495,23 +446,23 @@ FitResult fit_voxel_impl(
 
 }  // namespace
 
-FitResult fit_voxel(
+FitResult fit_tac(
     const SolverOptions& options,
     const std::vector<double>& time_minutes,
     const std::vector<double>& aif,
     const std::vector<double>& weights,
     const std::vector<double>& tac) {
-  return fit_voxel_impl(options, time_minutes, aif, weights, tac, nullptr);
+  return fit_tac_impl(options, time_minutes, aif, weights, tac, nullptr);
 }
 
-FitResult fit_voxel_with_initial_guess(
+FitResult fit_tac_with_initial_guess(
     const SolverOptions& options,
     const std::vector<double>& time_minutes,
     const std::vector<double>& aif,
     const std::vector<double>& weights,
     const std::vector<double>& tac,
     const ParameterVector& initial_guess) {
-  return fit_voxel_impl(options, time_minutes, aif, weights, tac, &initial_guess);
+  return fit_tac_impl(options, time_minutes, aif, weights, tac, &initial_guess);
 }
 
 }  // namespace tcm

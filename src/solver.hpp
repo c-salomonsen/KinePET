@@ -16,13 +16,8 @@ enum class FitStatus {
 };
 
 struct SolverOptions {
-  ModelKind model = ModelKind::Reversible2TCM;
-  bool fit_vb = true;
-  double fixed_vb = 0.05;
-  bool fit_delay = false;
-  double fixed_delay = 0.0;
-  bool fit_dispersion = false;
-  double fixed_dispersion = 0.0;
+  Model model = Reversible2TCM{};
+  AifOptions aif;
   SolverBounds bounds{};
   int max_iterations = 40;
   double gradient_tolerance = 1e-6;
@@ -42,14 +37,14 @@ struct FitResult {
   FitStatus status = FitStatus::Failed;
 };
 
-FitResult fit_voxel(
+FitResult fit_tac(
     const SolverOptions& options,
     const std::vector<double>& time_minutes,
     const std::vector<double>& aif,
     const std::vector<double>& weights,
     const std::vector<double>& tac);
 
-FitResult fit_voxel_with_initial_guess(
+FitResult fit_tac_with_initial_guess(
     const SolverOptions& options,
     const std::vector<double>& time_minutes,
     const std::vector<double>& aif,

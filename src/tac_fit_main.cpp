@@ -18,7 +18,7 @@ namespace {
 struct CliOptions {
   fs::path input_dir;
   fs::path output_dir;
-  tcm::ModelKind model = tcm::ModelKind::Reversible2TCM;
+  std::string model = "rev";
   bool fit_vb = true;
   double fixed_vb = 0.05;
   bool fit_delay = false;
@@ -70,9 +70,9 @@ CliOptions parse_args(int argc, char** argv) {
     } else if (arg == "--model") {
       const std::string value = require_value(i, argc, argv);
       if (value == "rev") {
-        options.model = tcm::ModelKind::Reversible2TCM;
+        options.model = "rev";
       } else if (value == "irr") {
-        options.model = tcm::ModelKind::Irreversible2TCM;
+        options.model = "irr";
       } else {
         throw std::runtime_error("Model must be 'rev' or 'irr'");
       }
@@ -127,7 +127,7 @@ void write_manifest(
     bool shared_weights) {
   std::ofstream out(output_dir / "run.txt");
   out << "mode=tacs\n";
-  out << "model=" << tcm::model_name(cli.model) << "\n";
+  out << "model=" << tcm::model_name(tcm::make_model(cli.model)) << "\n";
   out << "fit_vb=" << (cli.fit_vb ? 1 : 0) << "\n";
   out << "fixed_vb=" << cli.fixed_vb << "\n";
   out << "fit_delay=" << (cli.fit_delay ? 1 : 0) << "\n";
@@ -230,21 +230,13 @@ int main(int argc, char** argv) {
     }
 
     tcm::SolverOptions solver_options;
-    solver_options.model = cli.model;
-    solver_options.fit_vb = cli.fit_vb;
-    solver_options.fixed_vb = cli.fixed_vb;
-    solver_options.fit_delay = cli.fit_delay;
-    solver_options.fixed_delay = cli.fixed_delay;
-    solver_options.fit_dispersion = cli.fit_dispersion;
-    solver_options.fixed_dispersion = cli.fixed_dispersion;
+    solver_options.model = tcm::make_model(cli.model, tcm::blood_fraction_setting(cli.fit_vb, cli.fixed_vb));
+    solver_options.aif.delay.fitted = cli.fit_delay;
+    solver_options.aif.delay.fixed_value = cli.fixed_delay;
+    solver_options.aif.dispersion.fitted = cli.fit_dispersion;
+    solver_options.aif.dispersion.fixed_value = cli.fixed_dispersion;
     solver_options.bounds = tcm::default_bounds(
-        cli.model,
-        cli.fit_vb,
-        cli.fixed_vb,
-        cli.fit_delay,
-        cli.fixed_delay,
-        cli.fit_dispersion,
-        cli.fixed_dispersion);
+        solver_options.model, solver_options.aif);
     solver_options.max_iterations = cli.max_iterations;
     solver_options.use_linear_warm_start = cli.use_linear_warm_start;
     const tcm::TacBatchData batch = tcm::make_tac_batch_data(
@@ -263,7 +255,7 @@ int main(int argc, char** argv) {
     tcm::save_npy_f64(cli.output_dir / "K1.npy", out_shape, result.K1);
     tcm::save_npy_f64(cli.output_dir / "k2.npy", out_shape, result.k2);
     tcm::save_npy_f64(cli.output_dir / "k3.npy", out_shape, result.k3);
-    if (cli.model == tcm::ModelKind::Reversible2TCM) {
+    if (cli.model == "rev") {
       tcm::save_npy_f64(cli.output_dir / "k4.npy", out_shape, result.k4);
     }
     tcm::save_npy_f64(cli.output_dir / "vB.npy", out_shape, result.vB);
