@@ -86,3 +86,10 @@ if(TCM_ENABLE_PYTHON_BINDINGS)
 
   install(TARGETS _core LIBRARY DESTINATION kinepet)
 endif()
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(test_core tests/cpp/test_core.cpp)
+  target_link_libraries(test_core PRIVATE tcm_solver_core)
+  add_test(NAME core_numerics COMMAND test_core "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/warm_starts.txt")
+endif()
