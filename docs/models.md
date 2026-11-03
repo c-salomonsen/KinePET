@@ -7,6 +7,31 @@ KinePET supports two public model names:
 | `irr` | Irreversible two-tissue compartment model |
 | `rev` | Reversible two-tissue compartment model |
 
+## Explicit model objects
+
+```python
+from kinepet import Reversible2TCM, Irreversible2TCM, FittedVB, FixedVB
+
+reversible = Reversible2TCM(vb=FittedVB())
+irreversible = Irreversible2TCM(vb=FixedVB(0.05))
+no_vascular_contribution = Reversible2TCM(vb=FixedVB(0.0))
+```
+
+Both kinetic types default to `FittedVB()`. They are immutable descriptions of
+the equations and blood-fraction estimation; optimization remains in the shared
+compiled solver. `FixedVB(value)` requires a finite value in `[0, 1]`.
+
+Pass these objects to `fit_tacs`, `fit_one_tac`, `evaluate_model`, or
+`default_bounds`. With a model object, omit legacy `fit_vb` / `fixed_vb` options;
+combining both configuration forms raises `ValueError`.
+
+For evaluation, a `FixedVB` object supplies the blood fraction. A conflicting
+numeric `vB` raises `ValueError`. For a `FittedVB` object, provide the numeric
+fraction through `vB` (default `0.05`), since evaluation does not estimate it.
+
+Legacy `model="irr"` / `model="rev"` calls retain their prior behavior and defaults.
+The optional AIF delay and dispersion settings are independent of either model.
+
 Canonical parameter names:
 
 | Parameter | Description |
@@ -24,7 +49,7 @@ For the irreversible model, `k4` is not active and Python result objects expose 
 
 ## Bounds
 
-The source of truth for bounds is `src/tcm_model.cpp`. Use `kinepet.default_bounds()` to inspect active bounds from Python:
+The source of truth for bounds is `src/parameters.cpp`. Use `kinepet.default_bounds()` to inspect active bounds from Python:
 
 ```python
 kinepet.default_bounds(model="rev", fit_vb=True, fit_delay=True, fit_dispersion=True)

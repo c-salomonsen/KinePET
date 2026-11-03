@@ -27,6 +27,7 @@ nav:
   - Data Format: data-format.md
   - CLI: cli.md
   - Models and Parameters: models.md
+  - Architecture: architecture.md
   - Development: development.md
 
 markdown_extensions:

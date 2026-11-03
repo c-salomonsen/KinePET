@@ -22,28 +22,21 @@ The old image-oriented fitting pipeline has been removed on purpose. Image prepr
 
 ## What is in the repo
 
-- `src/solver.cpp`, `src/solver.hpp`
-  - bounded trust-region / LM-style nonlinear solver
-- `src/tcm_model.cpp`, `src/tcm_model.hpp`
-  - model equations, bounds, parameter packing, `Ki`
-- `src/lls.cpp`, `src/lls.hpp`
-  - linear least-squares warm start
-- `src/tac_batch.cpp`, `src/tac_batch.hpp`
-  - reusable TAC-batch fitting core shared by the CLI and Python binding
-- `src/tac_fit_main.cpp`
-  - TAC-batch CLI
-- `src/python_bindings.cpp`
-  - nanobind extension
-- `kinepet/__init__.py`
-  - user-facing Python API
-- `scripts/make_curves_from_csv.py`
-  - convert simulated CSV tables into TAC-batch directories
-- `scripts/make_synthetic_dataset.py`
-  - generate synthetic TAC batches for testing
-- `scripts/extract_voi_reference_fits.py`
-  - compare VOI TAC fits across `cpp`, `pypet`, and `lls`
-- `tests/test_bindings.py`
-  - pytest coverage for the Python binding
+The fitting path is **Python/CLI → batch orchestration → per-TAC solver → model evaluation**.
+
+| Responsibility | Location |
+| --- | --- |
+| Kinetic model types and fitted/fixed blood fraction | `src/model.hpp` |
+| Irreversible / reversible tissue equations | `src/models/irreversible.cpp`, `src/models/reversible.cpp` |
+| Shared AIF transformation and vascular mixing | `src/aif.cpp`, `src/tcm_model.cpp` |
+| Exact piecewise-linear exponential convolution | `src/models/convolution.cpp` |
+| Parameter ordering, bounds, and defaults | `src/parameters.cpp` |
+| LLS dispatch and model-specific regression/recovery | `src/lls.cpp`, `src/lls/irreversible.cpp`, `src/lls/reversible.cpp` |
+| Shared bounded nonlinear optimizer | `src/solver.cpp` |
+| TAC batches, CLI, Python binding | `src/tac_batch.cpp`, `src/tac_fit_main.cpp`, `src/python_bindings.cpp` |
+| Python model descriptions, fitting, evaluation, results | `kinepet/models.py`, `kinepet/fitting.py`, `kinepet/evaluation.py`, `kinepet/results.py` |
+
+See [the architecture guide](docs/architecture.md) for dispatch paths, coefficient definitions, and the boundary between model equations and fitting algorithms.
 
 ## Input format
 
@@ -105,6 +98,29 @@ cmake --build build
 
 ## Python API
 
+Model objects make the kinetic equations and blood-fraction setting explicit:
+
+```python
+import kinepet
+
+model = kinepet.Reversible2TCM(vb=kinepet.FittedVB())
+fit = kinepet.fit_tacs(tacs, time, aif, model=model)
+
+# A known nonzero vascular contribution:
+model = kinepet.Irreversible2TCM(vb=kinepet.FixedVB(0.05))
+fit = kinepet.fit_one_tac(tac, time, aif, model=model)
+
+# Use FixedVB(0.0) to omit the vascular contribution.
+```
+
+Both model types default to `FittedVB()`. `FixedVB` accepts finite fractions in
+`[0, 1]`. The same objects work with `evaluate_model()` and `default_bounds()`.
+For a fixed model, evaluation uses its known blood fraction; supplying a different
+`vB` raises `ValueError`. For a fitted model, evaluation uses the supplied numeric
+`vB`, defaulting to `0.05`.
+
+Existing string-based calls remain supported, with their existing defaults:
+
 ```python
 import numpy as np
 import kinepet
@@ -154,6 +170,11 @@ Useful helpers:
 - `kinepet.default_bounds(...)`
 - `kinepet.default_frame_weights(time)`
 
+With a model object, set blood fraction on the object and omit `fit_vb` and
+`fixed_vb`; combining both forms raises `ValueError`. For legacy string models,
+omitting those options retains `fit_vb=True` and `fixed_vb=0.05`. Internally,
+`None` marks an omitted option so conflicting configurations can be detected.
+
 ## CLI
 
 Build first, then run:
@@ -192,7 +213,7 @@ Outputs are flat `(N,)` arrays:
 
 ## Current default bounds
 
-The source of truth is `src/tcm_model.cpp`.
+The source of truth for bounds is `src/parameters.cpp`.
 
 Current defaults:
 
@@ -206,13 +227,10 @@ Current defaults:
 
 ## Scripts
 
-Convert simulated CSV tables to TAC batches:
+Generate TACs from a simulated parameter CSV and export fitted parameters:
 
 ```bash
-python3 scripts/make_curves_from_csv.py \
-  --csv-glob 'data/simulated-csv/*.csv' \
-  --output-root data/simulated-tac-batches \
-  --overwrite
+uv run --group extra python scripts/fit_from_csv.py input.csv fitted.csv --model rev --fit-vb
 ```
 
 Generate a synthetic TAC batch:
@@ -243,18 +261,25 @@ Run:
 uv run pytest -q
 ```
 
-Current pytest coverage checks:
+Build C++ targets as above, then also run:
 
-- irreversible batch fitting with per-TAC AIFs
-- reversible single-TAC fitting through the Python binding
-- optional helper APIs like `default_bounds`
-- input validation on invalid AIF shapes
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+The tests cover model objects and legacy calls, fitted/fixed/zero blood fraction,
+shared/per-TAC timing and AIFs, optional AIF parameters, repeated-root forward
+kinetics, and direct reversible coefficient recovery. C++ warm starts are checked
+against pre-refactor baselines. After building the CLI, pytest also checks CLI/API
+parity across 36 model/input configurations. If the CLI is elsewhere, set
+`KINEPET_CLI` to its executable path; otherwise those tests skip when it is absent.
 
 ## Notes
 
 - The nonlinear solver is custom C++, not SciPy TRF copied line-for-line.
-- There is exactly ONE forward model in this repo: the compiled C++ one in
-  `src/tcm_model.cpp`, reachable from Python as `kinepet.evaluate_model(...)`.
+- There is exactly ONE forward-model implementation in this repo: the compiled C++
+  entrypoint `src/tcm_model.cpp` dispatches to `src/models/irreversible.cpp` or
+  `src/models/reversible.cpp`, reachable from Python as `kinepet.evaluate_model(...)`.
   It integrates the piecewise-linear AIF with the exact exponential step and
   agrees with an ODE integration (`scipy.integrate.solve_ivp`) to machine
   precision, including for very small rate constants. The previous

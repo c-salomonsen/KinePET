@@ -21,6 +21,11 @@ pred = kinepet.evaluate_model(
 
 `time` and `aif` must be one-dimensional arrays with the same length. `time`, `delay`, and `dispersion` are interpreted in minutes. The returned array has shape `(T,)`.
 
+Model objects are accepted here too. For example,
+`model=kinepet.Reversible2TCM(vb=kinepet.FixedVB(0.05))` supplies the vascular
+fraction without a `vB` argument. Supplying a conflicting `vB` raises `ValueError`.
+A model with `FittedVB()` uses the explicit `vB`, defaulting to `0.05`.
+
 ## `default_bounds`
 
 Inspect the active parameter bounds used by the solver:
@@ -37,6 +42,9 @@ print(bounds["K1"])
 print(bounds["k4"])
 print(bounds["vB"])
 ```
+
+`default_bounds(kinepet.Reversible2TCM(vb=kinepet.FixedVB(0.05)))` omits
+`vB` from the active bounds. With a model object, omit `fit_vb` and `fixed_vb`.
 
 Current defaults:
 

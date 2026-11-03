@@ -21,6 +21,7 @@ Use this when you also want the standalone `tcm_fit_tacs` CLI target:
 ```bash
 cmake -S . -B build -DPython_EXECUTABLE=$(uv run python -c 'import sys; print(sys.executable)')
 cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
 ## Build documentation
@@ -53,6 +54,27 @@ After solver, binding, or CLI changes, run:
 uv run pytest -q
 cmake -S . -B build -DPython_EXECUTABLE=$(uv run python -c 'import sys; print(sys.executable)')
 cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
 If CLI-facing behavior changes, also run `tcm_fit_tacs` on a small synthetic TAC batch.
+
+## Reading and extending the code
+
+Start with [the architecture guide](architecture.md). It maps public calls to
+model dispatch, LLS regression/recovery, shared nonlinear optimization, and
+forward-model evaluation.
+
+The standalone CMake build enables CTest by default. Wheel builds disable C++
+test targets through `tool.scikit-build.cmake.define` in `pyproject.toml`.
+Python tests run independently; CLI parity tests additionally require a built
+CLI in `build/` or an executable path supplied through `KINEPET_CLI`.
+
+Before a release, build both distributions and check their contents:
+
+```bash
+uv build
+```
+
+The readability refactor retains version `0.4.0`. See the unreleased entry in
+`CHANGELOG.md` before choosing the next minor version and publishing.

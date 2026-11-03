@@ -34,7 +34,7 @@ fit = kinepet.fit_tacs(
 | `time` | `(T,)`, `(T, 1)`, or `(T, N)` | Frame times in minutes. KinePET does not infer seconds or rescale large values, so callers must convert seconds to minutes before fitting. |
 | `aif` | `(T,)`, `(T, 1)`, or `(T, N)` | Arterial input function. A vector or single-column array is shared by all TACs. `(T, N)` provides one AIF per TAC and requires `time` to also be `(T, N)`. |
 | `weights` | `None`, `(T,)`, `(T, 1)`, or `(T, N)` | Optional residual weights. Shared and per-TAC semantics match `aif`. |
-| `model` | `"irr"` or `"rev"` | Kinetic model name. |
+| `model` | Model object, `"irr"`, or `"rev"` | Kinetic model and blood-fraction configuration. |
 | `threads` | `int` | OpenMP thread count when available. `0` lets the backend choose. |
 
 ## Shared and per-TAC timing
@@ -63,6 +63,15 @@ All time columns are interpreted in minutes, even when a scan extends beyond 60 
 ## Optional fitted parameters
 
 By default KinePET fits `vB`, does not fit delay, and does not fit dispersion.
+
+```python
+model = kinepet.Reversible2TCM(vb=kinepet.FixedVB(0.05))
+fit = kinepet.fit_tacs(tacs, time, aif, model=model)
+```
+
+With a model object, omit `fit_vb` and `fixed_vb`; specifying either raises
+`ValueError`. The defaults below describe legacy string calls. Their Python
+signature uses `None` to represent an omitted blood-fraction option.
 
 | Option | Default | Meaning |
 | --- | --- | --- |

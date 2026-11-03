@@ -16,6 +16,16 @@ fit = kinepet.fit_one_tac(
 
 The options match `fit_tacs()`, except there is no `threads` argument because only one TAC is fitted.
 
+You can also pass an explicit model object:
+
+```python
+model = kinepet.Irreversible2TCM(vb=kinepet.FixedVB(0.05))
+fit = kinepet.fit_one_tac(tac, time, aif, model=model)
+```
+
+Model objects own their blood-fraction setting; omit the legacy `fit_vb` and
+`fixed_vb` options when using one.
+
 Convert seconds to minutes before calling `fit_one_tac()`.
 
 ## Accessing results
