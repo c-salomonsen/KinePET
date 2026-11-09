@@ -62,7 +62,8 @@ SOFTWARE.
 
 ## OpenMP runtime libraries
 
-OpenMP is detected at build time. Platform wheel repair may bundle a runtime:
+KinePET distributions built with OpenMP support may include one of the following
+runtime libraries. The applicable notices and license terms are provided below.
 
 - GCC libgomp: Free Software Foundation, Inc.; GPL version 3 or later with
   GCC Runtime Library Exception 3.1. The full texts are in
@@ -73,8 +74,6 @@ OpenMP is detected at build time. Platform wheel repair may bundle a runtime:
   the additional notices reproduced in `third_party_licenses/LLVM-OpenMP.txt`.
   Sources: https://github.com/llvm/llvm-project/tree/main/openmp
 
-These texts do not assert that every wheel bundles either library. Inspect the
-platform wheel dependencies for the libraries actually included. The license
-copies were retrieved from GCC 14.2.0 and LLVM 19.1.7; review them against the
-runtime version used when updating build images. System libraries not bundled
-with a wheel remain part of the user's platform installation.
+The included license texts are reproduced from GCC 14.2.0 and LLVM 19.1.7.
+The runtime included in a binary distribution depends on its platform and build
+configuration.

@@ -38,6 +38,10 @@ Use a clean distribution directory to avoid mixing old releases. Inspect source
 and wheel contents, licenses, metadata, and bundled binary dependencies. The
 notices cover nanobind, robin-map, and commonly bundled OpenMP runtimes; verify
 any additional library introduced by platform wheel repair before release.
+Identify the OpenMP runtime and version bundled in each platform wheel. The
+stored runtime license texts were copied from GCC 14.2.0 and LLVM 19.1.7;
+check them against the actual bundled versions and update the notices and texts
+when necessary, including after build-image changes.
 Install the wheel into a clean environment outside the checkout and run
 `scripts/wheel_smoke.py`. Also build a wheel from the sdist.
 
