@@ -5,6 +5,8 @@ import csv
 import importlib.util
 import io
 import json
+import hashlib
+import importlib.metadata
 import pickle
 import urllib.request
 import warnings
@@ -12,7 +14,6 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 
-import lls
 import numpy as np
 import kinepet
 
@@ -58,12 +59,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--voi-glob",
-        default="/Users/csa047/uit/phd/datasets/pet/VOI_SUV/VOI_*.pkl",
+        required=True,
+        help="Glob for trusted VOI pickle files (pickle loading executes code)",
     )
     parser.add_argument("--output-dir", type=Path, default=Path("output/validation/voi_reference"))
     parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument("--npz-time-unit", choices=("minutes", "seconds"), required=True)
+    parser.add_argument("--voi-time-unit", choices=("minutes", "seconds"), required=True)
+    parser.add_argument("--methods", nargs="+", choices=("cpp", "pypet", "lls"), default=["cpp"])
     parser.add_argument("--pypet-module", type=Path, default=None)
     parser.add_argument("--pypet-url", default=DEFAULT_PYPET_URL)
+    parser.add_argument("--pypet-sha256", help="Required SHA-256 of a downloaded PyPET module")
     return parser.parse_args()
 
 
@@ -80,7 +86,7 @@ def sanitize_sample_id(source_path: Path) -> str:
     return name
 
 
-def load_paired_sample(npz_path: Path, voi_path: Path) -> SampleCurves:
+def load_paired_sample(npz_path: Path, voi_path: Path, *, npz_time_unit: str, voi_time_unit: str) -> SampleCurves:
     with np.load(npz_path, allow_pickle=True) as arr:
         if "time" not in arr or "aif" not in arr:
             raise KeyError("Missing NPZ keys: time or aif")
@@ -111,10 +117,8 @@ def load_paired_sample(npz_path: Path, voi_path: Path) -> SampleCurves:
     if not (time_minutes.shape == aif.shape == brain.shape == myocardium.shape == voi_t.shape):
         raise ValueError("NPZ time/aif and VOI curves do not have matching lengths")
 
-    if np.max(time_minutes) > 60.0:
-        time_minutes = time_minutes / 60.0
-    if np.max(voi_t) > 60.0:
-        voi_t = voi_t / 60.0
+    time_minutes = to_minutes(time_minutes, npz_time_unit)
+    voi_t = to_minutes(voi_t, voi_time_unit)
     if not np.allclose(time_minutes, voi_t, atol=5e-4, rtol=0.0):
         raise ValueError("NPZ time vector and VOI_t do not match")
 
@@ -131,18 +135,35 @@ def load_paired_sample(npz_path: Path, voi_path: Path) -> SampleCurves:
     )
 
 
+def to_minutes(time: np.ndarray, unit: str) -> np.ndarray:
+    if unit not in ("minutes", "seconds"):
+        raise ValueError("time unit must be minutes or seconds")
+    return time / 60.0 if unit == "seconds" else time.copy()
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def ensure_pypet_module(args: argparse.Namespace) -> Path:
     if args.pypet_module is not None:
         if not args.pypet_module.exists():
             raise SystemExit(f"Missing PyPET module: {args.pypet_module}")
         return args.pypet_module
 
+    if not args.pypet_sha256:
+        raise SystemExit("Downloading executable PyPET code requires --pypet-sha256; alternatively supply a reviewed --pypet-module")
     cache_dir = args.output_dir / "reference_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     module_path = cache_dir / "Tissue_compartment_modeling.py"
     if not module_path.exists():
-        with urllib.request.urlopen(args.pypet_url) as response:
-            module_path.write_bytes(response.read())
+        with urllib.request.urlopen(args.pypet_url, timeout=30) as response:
+            payload = response.read()
+        if hashlib.sha256(payload).hexdigest() != args.pypet_sha256.lower():
+            raise SystemExit("PyPET SHA-256 mismatch")
+        module_path.write_bytes(payload)
+    if file_sha256(module_path) != args.pypet_sha256.lower():
+        raise SystemExit("Cached PyPET SHA-256 mismatch")
     return module_path
 
 
@@ -253,6 +274,8 @@ def fit_with_lls(sample: SampleCurves, model: str) -> list[dict[str, object]]:
     model_name = "4k_vB" if model == "rev" else "3k_vB"
 
     try:
+        import lls
+
         kinetic_params, _fitted_tacs, mse = lls.fit_compartment_model(
             tacs=tacs,
             aif=sample.aif,
@@ -369,13 +392,30 @@ def run_cpp_fit(args: argparse.Namespace, sample: SampleCurves, model: str) -> l
                 "Ki": float(fit.Ki[voxel]),
                 "error_value": float(fit.rmse[voxel]),
                 "error_kind": "rmse_native_grid",
-                "status": str(int(fit.status[voxel])),
+                "status": str(int(fit.status_code[voxel])),
                 "iterations": str(int(fit.iterations[voxel])),
                 "npz_path": str(sample.npz_path),
                 "voi_path": str(sample.voi_path),
             }
         )
     return rows
+
+
+def add_common_rmse(rows: list[dict[str, object]], sample: SampleCurves) -> None:
+    """Evaluate every method's parameters with the same compiled model/grid."""
+    for row in rows:
+        row["common_rmse_native_grid"] = np.nan
+        params = {key: float(row[key]) for key in ("K1", "k2", "k3", "k4", "vB")}
+        if not all(np.isfinite(value) for value in params.values()):
+            continue
+        if any(params[key] < 0 for key in ("K1", "k2", "k3", "k4")) or not 0 <= params["vB"] <= 1:
+            continue
+        try:
+            predicted = kinepet.evaluate_model(sample.time_minutes, sample.aif, model=row["model"], **params)
+            observed = sample.brain if row["region"] == "Brain" else sample.myocardium
+            row["common_rmse_native_grid"] = float(np.sqrt(np.mean((predicted - observed) ** 2)))
+        except RuntimeError:
+            pass
 
 
 def save_curves_npz(output_dir: Path, samples: list[SampleCurves]) -> Path:
@@ -412,6 +452,7 @@ def save_results_csv(output_dir: Path, rows: list[dict[str, object]]) -> Path:
         "Ki",
         "error_value",
         "error_kind",
+        "common_rmse_native_grid",
         "status",
         "iterations",
         "npz_path",
@@ -445,8 +486,13 @@ def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    pypet_module_path = ensure_pypet_module(args)
-    pypet_module = load_module(pypet_module_path)
+    pypet_module_path = ensure_pypet_module(args) if "pypet" in args.methods else None
+    pypet_module = load_module(pypet_module_path) if pypet_module_path else None
+    if "lls" in args.methods:
+        try:
+            import lls
+        except ImportError as exc:
+            raise SystemExit("The optional LLS comparison requires the maintainer's lls package; see docs/reproducibility.md") from exc
 
     npz_paths = discover_pickles(args.raw_npz_glob)
     voi_paths = discover_pickles(args.voi_glob)
@@ -474,7 +520,8 @@ def main() -> None:
             )
             continue
         try:
-            samples.append(load_paired_sample(npz_path, voi_path))
+            samples.append(load_paired_sample(npz_path, voi_path,
+                                             npz_time_unit=args.npz_time_unit, voi_time_unit=args.voi_time_unit))
         except Exception as exc:
             skipped.append(
                 SkippedSample(
@@ -497,15 +544,24 @@ def main() -> None:
             )
         )
 
+    if not samples:
+        save_skipped_csv(args.output_dir, skipped)
+        raise SystemExit("No matched valid samples; see voi_reference_skipped.csv")
     rows: list[dict[str, object]] = []
 
     for index, sample in enumerate(samples, start=1):
         print(f"[{index}/{len(samples)}] {sample.sample_id}")
         for model in ["irr", "rev"]:
-            rows.extend(run_cpp_fit(args, sample, model))
-            rows.extend(fit_with_lls(sample, model))
-            for region in ["Brain", "Myocardium"]:
-                rows.append(fit_with_pypet(pypet_module, sample, region, model))
+            sample_rows = []
+            if "cpp" in args.methods:
+                sample_rows.extend(run_cpp_fit(args, sample, model))
+            if "lls" in args.methods:
+                sample_rows.extend(fit_with_lls(sample, model))
+            if "pypet" in args.methods:
+                for region in ["Brain", "Myocardium"]:
+                    sample_rows.append(fit_with_pypet(pypet_module, sample, region, model))
+            add_common_rmse(sample_rows, sample)
+            rows.extend(sample_rows)
 
     curves_path = save_curves_npz(args.output_dir, samples)
     csv_path = save_results_csv(args.output_dir, rows)
@@ -522,12 +578,20 @@ def main() -> None:
         "curves_npz": str(curves_path.resolve()),
         "fits_csv": str(csv_path.resolve()),
         "skipped_csv": str(skipped_path.resolve()),
-        "pypet_module": str(pypet_module_path.resolve()),
-        "pypet_url": args.pypet_url if args.pypet_module is None else None,
+        "methods": args.methods,
+        "npz_time_unit": args.npz_time_unit,
+        "voi_time_unit": args.voi_time_unit,
+        "pypet_module": str(pypet_module_path.resolve()) if pypet_module_path else None,
+        "pypet_sha256": file_sha256(pypet_module_path) if pypet_module_path else None,
+        "pypet_url": args.pypet_url if pypet_module_path and args.pypet_module is None else None,
+        "kinepet_version": importlib.metadata.version("kinepet"),
         "cpp_solver": "kinepet Python binding",
         "cpp_threads": args.threads,
         "cpp_fit_vb": 1,
-        "lls_package": str(Path(lls.__file__).resolve()),
+        "cpp_fit_delay": False,
+        "cpp_fit_dispersion": False,
+        "lls_package": str(Path(lls.__file__).resolve()) if "lls" in args.methods else None,
+        "lls_version": importlib.metadata.version("lls") if "lls" in args.methods else None,
         "lls_model_map": {"irr": "3k_vB", "rev": "4k_vB"},
         "lls_interpolate": True,
         "lls_frame_duration_seconds": 2.5,
