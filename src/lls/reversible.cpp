@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Christian Salomonsen
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #include "formulations.hpp"
 
 #include <algorithm>

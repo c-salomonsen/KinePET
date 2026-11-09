@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Christian Salomonsen
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Run outside the checkout against an installed wheel; NumPy is sufficient."""
 import numpy as np
 import kinepet

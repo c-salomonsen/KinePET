@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Christian Salomonsen
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Independent mass-balance ODE checks, used only for validation.
 
 Each piecewise-linear AIF interval is integrated separately so the adaptive

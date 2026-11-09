@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Christian Salomonsen
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Array normalization and shared/per-TAC shape validation."""
 from __future__ import annotations
 

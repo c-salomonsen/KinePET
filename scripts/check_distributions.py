@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Christian Salomonsen
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Check archive contents and required notices before publication."""
 import argparse
 from pathlib import Path, PurePosixPath

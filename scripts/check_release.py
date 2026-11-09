@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Christian Salomonsen
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Fail closed before uploading a versioned public release."""
 import argparse
 from pathlib import Path

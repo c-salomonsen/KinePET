@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Christian Salomonsen
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Exercise the comparison CSV without private data or reference packages."""
 import csv
 import importlib.util

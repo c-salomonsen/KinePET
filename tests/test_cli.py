@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Christian Salomonsen
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """CLI/API parity checks; run after building tcm_fit_tacs with CMake."""
 from __future__ import annotations
 

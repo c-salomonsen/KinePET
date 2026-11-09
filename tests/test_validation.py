@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Christian Salomonsen
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Invalid inputs must never masquerade as convergence, including via _core."""
 import numpy as np
 import pytest

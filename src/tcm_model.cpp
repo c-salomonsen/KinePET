@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Christian Salomonsen
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #include "tcm_model.hpp"
 #include "aif.hpp"
 #include "models/tissue.hpp"
