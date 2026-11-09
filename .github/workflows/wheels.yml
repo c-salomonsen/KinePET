@@ -6,64 +6,15 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
-  changes:
-    name: Detect source changes
-    runs-on: ubuntu-latest
-    outputs:
-      source: ${{ steps.changed.outputs.source }}
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect changed source files
-        id: changed
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "source=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            base="${{ github.event.pull_request.base.sha }}"
-            head="${{ github.event.pull_request.head.sha }}"
-          else
-            base="${{ github.event.before }}"
-            head="${{ github.sha }}"
-          fi
-
-          if [[ "$base" =~ ^0+$ ]]; then
-            echo "source=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          source=false
-          while IFS= read -r path; do
-            case "$path" in
-              .github/workflows/wheels.yml|.python-version|CMakeLists.txt|pyproject.toml|uv.lock|kinepet/*|scripts/*|src/*|tests/*)
-                source=true
-                break
-                ;;
-            esac
-          done < <(git diff --name-only "$base" "$head")
-
-          echo "source=$source" >> "$GITHUB_OUTPUT"
-
   build_sdist:
     name: Build sdist
     runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.source == 'true'
 
     steps:
       - name: Check out source
@@ -79,6 +30,9 @@ jobs:
           python -m pip install --upgrade build
           python -m build --sdist
 
+      - name: Check source archive
+        run: python scripts/check_distributions.py dist
+
       - name: Upload sdist
         uses: actions/upload-artifact@v4
         with:
@@ -88,8 +42,6 @@ jobs:
   build_wheels:
     name: Build wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    needs: changes
-    if: needs.changes.outputs.source == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -115,8 +67,11 @@ jobs:
           CIBW_BUILD: cp311-* cp312-* cp313-*
           CIBW_BUILD_FRONTEND: pip
           CIBW_BUILD_VERBOSITY: 1
-          CIBW_TEST_COMMAND: python -c "import kinepet; print(kinepet.__name__)"
+          CIBW_TEST_COMMAND: python {project}/scripts/wheel_smoke.py
         run: python -m cibuildwheel --output-dir wheelhouse
+
+      - name: Check wheel contents
+        run: python scripts/check_distributions.py wheelhouse
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4

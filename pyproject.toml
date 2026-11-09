@@ -1,31 +1,47 @@
 [build-system]
 requires = [
     "nanobind>=2.2",
-    "scikit-build-core>=0.10",
+    "scikit-build-core>=0.12",
 ]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "kinepet"
-version = "0.4.0"
+version = "0.5.0.dev0"
 description = "TAC-based nonlinear fitting for dynamic PET two-tissue compartment models"
 readme = "README.md"
 requires-python = ">=3.11"
+maintainers = [{name = "c-salomonsen"}]
+keywords = ["PET", "kinetic modeling", "compartment model", "nonlinear least squares"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
 dependencies = [
     "numpy>=2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/c-salomonsen/KinePET"
+Documentation = "https://kinepet.salodev.no/"
+Repository = "https://github.com/c-salomonsen/KinePET"
+Issues = "https://github.com/c-salomonsen/KinePET/issues"
+Changelog = "https://github.com/c-salomonsen/KinePET/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
     "nanobind>=2.2",
     "pytest>=8.4.0",
-    "scikit-build-core>=0.10",
+    "scikit-build-core>=0.12",
+    "scipy>=1.14",
 ]
 docs = [
     "mkdocs>=1.6.1",
 ]
 extra = [
-    "lls>=0.5.0",
     "marimo>=0.24.2",
     "matplotlib>=3.11.2",
     "pandas>=3.0.2",
@@ -33,20 +49,14 @@ extra = [
     "seaborn[stats]>=0.13.2",
 ]
 
-[[tool.uv.index]]
-name = "salodev-index"
-url = "https://pypi.salodev.no/simple/"
-publish-url = "https://pypi.salodev.no/"
-explicit = true
-
 [tool.scikit-build]
+minimum-version = "build-system.requires"
 wheel.packages = ["kinepet"]
+wheel.license-files = ["LICENSE*", "THIRD_PARTY_NOTICES.md", "third_party_licenses/*.txt"]
+sdist.exclude = ["AGENTS.md", "data/**", "output/**", "notebooks/**", "build/**", "dist/**", "site/**", ".venv/**"]
 
 [tool.scikit-build.cmake.define]
 BUILD_TESTING = "OFF"
-
-[[tool.uv.index]]
-url = "https://pypi.salodev.no/simple"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
