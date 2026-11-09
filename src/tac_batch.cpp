@@ -118,6 +118,12 @@ TacBatchResult fit_tac_batch(
     const TacBatchData& batch,
     const SolverOptions& solver_options,
     int threads) {
+  if (!valid_solver_options(solver_options) || threads < 0) {
+    throw std::invalid_argument("Invalid solver options: require finite valid bounds/settings, nonnegative tolerances/iterations/threads, and positive fd_step/lambda_initial");
+  }
+  if (batch.t_count < 2 || batch.tac_count == 0) {
+    throw std::invalid_argument("A batch requires at least two time points and one TAC");
+  }
   validate_payload_size(
       batch.time_minutes.size(),
       batch.t_count * (batch.time_mode == ColumnMode::Shared ? 1 : batch.tac_count),
@@ -217,6 +223,7 @@ TacBatchResult fit_tac_batch(
           aif,
           weights,
           tac);
+      result.status[idx] = static_cast<int32_t>(fit.status);
       if (fit.status != FitStatus::InvalidInput) {
         result.K1[idx] = fit.params.K1;
         result.k2[idx] = fit.params.k2;

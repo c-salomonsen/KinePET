@@ -3,6 +3,7 @@
 #include "lls.hpp"
 
 #include <vector>
+#include <limits>
 
 namespace tcm {
 
@@ -31,11 +32,13 @@ struct SolverOptions {
 struct FitResult {
   ParameterVector params{};
   double ki = 0.0;
-  double rmse = 0.0;
-  double weighted_cost = 0.0;
+  double rmse = std::numeric_limits<double>::quiet_NaN();
+  double weighted_cost = std::numeric_limits<double>::quiet_NaN();
   int iterations = 0;
   FitStatus status = FitStatus::Failed;
 };
+
+bool valid_solver_options(const SolverOptions& options);
 
 FitResult fit_tac(
     const SolverOptions& options,

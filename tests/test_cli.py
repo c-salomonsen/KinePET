@@ -73,3 +73,18 @@ def test_cli_matches_python_api(tmp_path, name, vb, per_tac, aif_mode):
     manifest = (output_dir / "run.txt").read_text()
     assert f"model=2tcm-{'reversible' if name == 'rev' else 'irreversible'}\n" in manifest
     assert f"shared_aif={int(not per_tac)}\n" in manifest
+
+
+def test_cli_reports_invalid_tac_without_discarding_valid_tac(tmp_path):
+    time = np.linspace(0, 30, 50)
+    aif = 10 * np.exp(-time) + np.exp(-time / 10)
+    tac = kinepet.evaluate_model(time, aif, model="irr", K1=.1, k2=.2, k3=.1)
+    for name, values in dict(time=time, aif=aif, tacs=np.column_stack([tac, tac * np.nan])).items():
+        np.save(tmp_path / f"{name}.npy", values)
+    output = tmp_path / "fit"
+    subprocess.run([str(CLI), "--input-dir", str(tmp_path), "--output-dir", str(output),
+                    "--model", "irr", "--threads", "1"], check=True, capture_output=True)
+    status = np.load(output / "status.npy")
+    assert status[0] in (1, 2, 3)
+    assert status[1] == 5
+    assert np.isnan(np.load(output / "rmse.npy")[1])

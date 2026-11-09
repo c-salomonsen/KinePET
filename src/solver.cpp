@@ -2,6 +2,7 @@
 
 #include "small_linalg.hpp"
 #include "tcm_model.hpp"
+#include "validation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -131,7 +132,7 @@ bool evaluate_weighted_residuals(
     sq += diff * diff;
   }
   rmse = std::sqrt(sq / static_cast<double>(tac.size()));
-  return true;
+  return std::isfinite(cost) && std::isfinite(rmse) && all_finite(residuals);
 }
 
 bool compute_jacobian(
@@ -197,7 +198,7 @@ bool compute_jacobian(
     }
   }
 
-  return true;
+  return all_finite(work.jacobian);
 }
 
 void build_normal_equations(Workspace& work) {
@@ -229,7 +230,8 @@ bool solve_lm_step(Workspace& work, double lambda) {
     rhs[static_cast<std::size_t>(i)] = -work.gradient[static_cast<std::size_t>(i)];
   }
 
-  return solve_linear_system(system, rhs, work.n_params, work.step);
+  return all_finite(system) && all_finite(rhs) &&
+      solve_linear_system(system, rhs, work.n_params, work.step) && all_finite(work.step);
 }
 
 FitResult initial_result(
@@ -243,7 +245,7 @@ FitResult initial_result(
   FitResult result;
   result.params = start_params;
   result.ki = compute_ki(start_params);
-  result.status = FitStatus::InvalidInput;
+  result.status = FitStatus::Failed;
 
   std::array<double, kMaxParameterCount> x{};
   pack_active(
@@ -323,7 +325,11 @@ FitResult fit_tac_impl(
     const ParameterVector* initial_guess) {
   FitResult result;
   if (time_minutes.size() != tac.size() || aif.size() != tac.size() || weights.size() != tac.size() ||
-      tac.size() < 4) {
+      tac.size() < 4 || !valid_time(time_minutes) || !all_finite(aif) ||
+      !all_finite(tac) || !all_finite(weights) ||
+      std::any_of(weights.begin(), weights.end(), [](double w) { return w < 0.0; }) ||
+      std::none_of(weights.begin(), weights.end(), [](double w) { return w > 0.0; }) ||
+      !valid_solver_options(options) || (initial_guess && !finite_parameters(*initial_guess))) {
     result.status = FitStatus::InvalidInput;
     return result;
   }
@@ -342,7 +348,7 @@ FitResult fit_tac_impl(
       options, time_minutes, aif, tac, initial_guess);
 
   result = initial_result(options, time_minutes, aif, weights, tac, work, start);
-  if (result.status == FitStatus::InvalidInput) {
+  if (!std::isfinite(result.weighted_cost) || !std::isfinite(result.rmse)) {
     return result;
   }
 
@@ -359,6 +365,10 @@ FitResult fit_tac_impl(
       return result;
     }
     build_normal_equations(work);
+    if (!all_finite(work.gradient) || !all_finite(work.hessian)) {
+      result.status = FitStatus::Failed;
+      return result;
+    }
 
     if (inf_norm(work.gradient, work.n_params) < options.gradient_tolerance) {
       result.status = FitStatus::GradientConverged;
@@ -414,7 +424,7 @@ FitResult fit_tac_impl(
       const double predicted_reduction =
           -dot(work.gradient, work.step, work.n_params) -
           0.5 * quad_form(work.hessian, work.step, work.n_params);
-      if (predicted_reduction <= 0.0) {
+      if (!std::isfinite(predicted_reduction) || predicted_reduction <= 0.0) {
         lambda *= nu;
         nu *= 2.0;
         continue;
@@ -459,6 +469,34 @@ FitResult fit_tac_impl(
 }
 
 }  // namespace
+
+bool valid_solver_options(const SolverOptions& options) {
+  if (options.max_iterations < 0 ||
+      !all_finite(std::array{options.gradient_tolerance, options.step_tolerance,
+                            options.cost_tolerance, options.fd_step, options.lambda_initial}) ||
+      options.gradient_tolerance < 0.0 || options.step_tolerance < 0.0 ||
+      options.cost_tolerance < 0.0 || options.fd_step <= 0.0 || options.lambda_initial <= 0.0) {
+    return false;
+  }
+  if (!fits_vb(options.model) &&
+      (!std::isfinite(fixed_vb(options.model)) || fixed_vb(options.model) < 0.0 ||
+       fixed_vb(options.model) > 1.0)) return false;
+  if (!options.aif.delay.fitted && !std::isfinite(options.aif.delay.fixed_value)) return false;
+  if (!options.aif.dispersion.fitted &&
+      (!std::isfinite(options.aif.dispersion.fixed_value) || options.aif.dispersion.fixed_value < 0.0)) {
+    return false;
+  }
+  const int n = active_parameter_count(options.model, options.aif);
+  for (int i = 0; i < n; ++i) {
+    const double lower = options.bounds.lower[i], upper = options.bounds.upper[i];
+    if (!std::isfinite(lower) || !std::isfinite(upper) || upper <= lower ||
+        !std::isfinite(upper - lower)) return false;
+    const auto name = parameter_name(options.model, options.aif, i);
+    if (name != "delay" && lower < 0.0) return false;
+    if (name == "vB" && upper > 1.0) return false;
+  }
+  return true;
+}
 
 FitResult fit_tac(
     const SolverOptions& options,

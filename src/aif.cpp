@@ -72,6 +72,12 @@ void transform_aif(
     double delay,
     double dispersion,
     std::vector<double>& transformed) {
+  // Preserve the measured samples when a caller requests an in-place shift.
+  if (&measured_aif == &transformed) {
+    const auto source = measured_aif;
+    transform_aif(time_minutes, source, delay, dispersion, transformed);
+    return;
+  }
   transformed.resize(time_minutes.size());
   const double tau = std::max(0.0, dispersion);
   for (std::size_t i = 0; i < time_minutes.size(); ++i) {

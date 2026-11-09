@@ -1,12 +1,15 @@
 #include "lls.hpp"
 #include "lls/formulations.hpp"
 #include "tcm_model.hpp"
+#include "aif.hpp"
+#include "solver.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -147,6 +150,36 @@ void check_warm_start_rejection() {
   }
 }
 
+void check_invalid_solver_inputs() {
+  const std::vector<double> time{0., .1, .2, .5, 1., 2.};
+  const std::vector<double> aif{0., 10., 5., 3., 1., .5};
+  const std::vector<double> weights(time.size(), 1.);
+  tcm::SolverOptions options;
+  options.bounds = tcm::default_bounds(options.model, {});
+  options.max_iterations = 0;
+  require(tcm::fit_tac(options, time, aif, weights, aif).status == tcm::FitStatus::MaxIterations,
+          "zero iterations must retain initialization-only mode");
+  options.bounds.upper[0] = options.bounds.lower[0];
+  require(tcm::fit_tac(options, time, aif, weights, aif).status == tcm::FitStatus::InvalidInput,
+          "equal bounds must be rejected before division by span");
+  options.bounds = tcm::default_bounds(options.model, {});
+  auto initial = tcm::default_initial_guess(options.model, {});
+  initial.K1 = std::numeric_limits<double>::quiet_NaN();
+  require(tcm::fit_tac_with_initial_guess(options, time, aif, weights, aif, initial).status ==
+              tcm::FitStatus::InvalidInput, "nonfinite explicit start must be rejected");
+  for (double delay : {-.03, .03}) {
+    for (double dispersion : {0., .02}) {
+      std::vector<double> expected;
+      tcm::transform_aif(time, aif, delay, dispersion, expected);
+      auto in_place = aif;
+      tcm::transform_aif(time, in_place, delay, dispersion, in_place);
+      for (std::size_t i = 0; i < time.size(); ++i) {
+        check_close(in_place[i], expected[i], "aliased AIF transform");
+      }
+    }
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -162,6 +195,7 @@ int main(int argc, char** argv) {
     check_reversible_recovery();
     check_parameter_layouts();
     check_warm_start_rejection();
+    check_invalid_solver_inputs();
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

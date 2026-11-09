@@ -1,6 +1,7 @@
 #include "tcm_model.hpp"
 #include "aif.hpp"
 #include "models/tissue.hpp"
+#include "validation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -13,7 +14,8 @@ bool evaluate_model(
     const std::vector<double>& time_minutes,
     const std::vector<double>& aif_raw,
     std::vector<double>& predicted) {
-  if (time_minutes.size() != aif_raw.size() || time_minutes.empty()) {
+  if (time_minutes.size() != aif_raw.size() || !valid_time(time_minutes) ||
+      !all_finite(aif_raw) || !finite_parameters(raw_params)) {
     return false;
   }
 
@@ -31,7 +33,10 @@ bool evaluate_model(
     }
   }
   if (std::abs(params.delay) > 1e-12 || params.dispersion > 1e-12) {
-    transform_aif(time_minutes, aif, params.delay, params.dispersion, aif);
+    std::vector<double> transformed;
+    transform_aif(time_minutes, aif, params.delay, params.dispersion, transformed);
+    aif = std::move(transformed);
+    if (!all_finite(aif)) return false;
   }
 
   const bool ok = std::visit([&](const auto& kinetic_model) {
@@ -43,7 +48,7 @@ bool evaluate_model(
   for (std::size_t i = 0; i < predicted.size(); ++i) {
     predicted[i] = (1.0 - params.vB) * predicted[i] + params.vB * aif[i];
   }
-  return true;
+  return all_finite(predicted);
 }
 
 }  // namespace tcm
