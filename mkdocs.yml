@@ -29,6 +29,8 @@ nav:
   - Models and Parameters: models.md
   - Architecture: architecture.md
   - Development: development.md
+  - Validation and Reproducibility: reproducibility.md
+  - Releasing: releasing.md
 
 markdown_extensions:
   - admonition

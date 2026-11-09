@@ -76,5 +76,7 @@ Before a release, build both distributions and check their contents:
 uv build
 ```
 
-The readability refactor retains version `0.4.0`. See the unreleased entry in
-`CHANGELOG.md` before choosing the next minor version and publishing.
+This branch uses `0.5.0.dev0` to distinguish it from the paper’s published
+`0.4.0`. Follow [the release procedure](releasing.md) before publishing.
+After editing C++ sources, rebuild the editable extension with
+`uv sync --group dev --reinstall-package kinepet` before running Python tests.

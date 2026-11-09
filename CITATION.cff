@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "Please cite the exact KinePET release used in your work. Add the software archive DOI and associated paper citation when available."
+type: software
+title: "KinePET: TAC-based fitting of dynamic PET two-tissue compartment models"
+authors:
+  - name: "KinePET contributors"
+    website: "https://github.com/c-salomonsen/KinePET/graphs/contributors"
+repository-code: "https://github.com/c-salomonsen/KinePET"
+url: "https://kinepet.salodev.no/"
+abstract: "A bounded nonlinear C++ solver with Python bindings for reversible and irreversible two-tissue compartment models, with linear least-squares initialization."
+keywords:
+  - PET
+  - kinetic modeling
+  - compartment models

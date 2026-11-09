@@ -33,4 +33,22 @@ With a model object, configure blood fraction on that object; combining it with
 legacy `fit_vb` / `fixed_vb` options raises `ValueError`. A standalone evaluation
 also rejects a numeric `vB` that conflicts with the model's `FixedVB`.
 
-The version remains `0.4.0` pending a release decision.
+### Release-readiness fixes
+
+- Reject nonfinite inputs, invalid time grids/weights, and invalid solver options
+  in the shared C++ path. Preserve per-TAC invalid status 5 in batch outputs;
+  guard objective, derivative, and linear-step overflow against false convergence.
+- Fix in-place AIF transformation for negative delays and dispersion.
+- Repair comparison export status codes, require explicit source time units,
+  remove the local VOI path, isolate optional reference packages, verify downloaded
+  PyPET code by SHA-256, and add common native-grid RMSE without changing original
+  method metrics.
+- Add numerical input regressions, independent compartment ODE checks, a synthetic
+  comparison-export smoke test, and a reproducible synthetic benchmark.
+- Resolve public development dependencies without a private index. Prepare
+  Trusted Publishing with release metadata/license gates and numerical wheel tests.
+- Add dependency notices, contribution guidance, citation scaffold, scientific
+  conventions, paper provenance, and release instructions.
+
+The development version is `0.5.0.dev0`; the published `0.4.0` tag/artifacts remain
+unchanged. The maintainer will add AGPLv3 text and license metadata before release.

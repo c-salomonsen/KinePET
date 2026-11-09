@@ -166,4 +166,4 @@ AIF parameters. Existing binding and small-rate regression tests remain in place
 Keep future changes focused on one responsibility. Update this map when moving
 code; preserve the shared optimizer and compiled forward path unless a functional
 change explicitly requires otherwise. The refactor leaves the package version
-at `0.4.0`; unreleased changes are recorded in `CHANGELOG.md`.
+at `0.5.0.dev0`; unreleased changes are recorded in `CHANGELOG.md`.

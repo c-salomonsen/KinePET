@@ -1,292 +1,150 @@
 # KinePET
 
-This repo now ships one fitting core:
+KinePET fits dynamic PET time–activity curves (TACs) with reversible and
+irreversible two-tissue compartment models. A C++ bounded nonlinear solver uses
+a linear least-squares warm start and supports fitting TAC batches through
+Python or the standalone `tcm_fit_tacs` CLI.
 
-- a TAC-based bounded nonlinear solver for dynamic PET two-tissue compartment models
+Blood fraction can be fitted, fixed to a known value, or omitted by fixing it to
+zero. Delay and dispersion correction are optional. Image preprocessing and
+reconstruction of parameter maps belong in the calling application.
 
-Supported models:
+[Documentation](https://kinepet.salodev.no/) ·
+[Issues](https://github.com/c-salomonsen/KinePET/issues) ·
+[Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
-- `irr`: irreversible 2TCM
-- `rev`: reversible 2TCM
+## Installation
 
-The solver is available through:
+Python 3.11 or later is required. Release CI builds and tests wheels for
+CPython 3.11–3.13 on Linux, Windows, and macOS. The public PyPI release is being
+prepared; until it is published, install from this checkout:
 
-- a standalone C++ CLI: `tcm_fit_tacs`
-- a Python package with a nanobind extension: `kinepet`
+```bash
+python -m pip install .
+```
 
-Supported Python versions for the published package:
-
-- `3.11+`
-
-The old image-oriented fitting pipeline has been removed on purpose. Image preprocessing, masking, postprocessing, and map reconstruction are expected to live in Python outside the core solver.
-
-## What is in the repo
-
-The fitting path is **Python/CLI → batch orchestration → per-TAC solver → model evaluation**.
-
-| Responsibility | Location |
-| --- | --- |
-| Kinetic model types and fitted/fixed blood fraction | `src/model.hpp` |
-| Irreversible / reversible tissue equations | `src/models/irreversible.cpp`, `src/models/reversible.cpp` |
-| Shared AIF transformation and vascular mixing | `src/aif.cpp`, `src/tcm_model.cpp` |
-| Exact piecewise-linear exponential convolution | `src/models/convolution.cpp` |
-| Parameter ordering, bounds, and defaults | `src/parameters.cpp` |
-| LLS dispatch and model-specific regression/recovery | `src/lls.cpp`, `src/lls/irreversible.cpp`, `src/lls/reversible.cpp` |
-| Shared bounded nonlinear optimizer | `src/solver.cpp` |
-| TAC batches, CLI, Python binding | `src/tac_batch.cpp`, `src/tac_fit_main.cpp`, `src/python_bindings.cpp` |
-| Python model descriptions, fitting, evaluation, results | `kinepet/models.py`, `kinepet/fitting.py`, `kinepet/evaluation.py`, `kinepet/results.py` |
-
-See [the architecture guide](docs/architecture.md) for dispatch paths, coefficient definitions, and the boundary between model equations and fitting algorithms.
-
-## Input format
-
-The solver works on flattened TAC batches.
-
-Required files:
-
-- `tacs.npy`: shape `(T, N)`
-- `time.npy`: shape `(T,)`, `(T, 1)`, or `(T, N)`, in minutes
-- `aif.npy`: shape `(T,)`, `(T, 1)`, or `(T, N)`
-
-Interpretation of `aif.npy`:
-
-- `(T,)` or `(T, 1)`: one shared AIF for all TACs
-- `(T, N)`: one AIF per TAC
-
-Interpretation of `time.npy`:
-
-- `(T,)` or `(T, 1)`: one shared time vector for all TACs
-- `(T, N)`: one time vector per TAC
-- when `aif.npy` is `(T, N)`, `time.npy` must also be `(T, N)` so `time[:, i]`, `aif[:, i]`, and `tacs[:, i]` describe the same sample
-
-Optional:
-
-- `weights.npy`: shape `(T,)`, `(T, 1)`, or `(T, N)`
-
-Time is always interpreted directly as minutes. The solver does not infer seconds from large values and does not perform automatic unit conversion. Convert frame times to minutes before fitting.
-
-## Build and install
-
-Source installs require:
-
-- Python
-- `uv`
-- CMake
-- a C++20 compiler toolchain
-
-The Python API uses a compiled nanobind extension, so CMake is required when installing from source. It is not only needed for the standalone CLI. If you install a prebuilt wheel, CMake should not be required.
-
-For local development:
+Source builds require a C++20 compiler and CMake (the Python build backend can
+install CMake). Prebuilt wheels do not require a compiler. Runtime dependencies
+are limited to NumPy. Development dependencies resolve from public PyPI:
 
 ```bash
 uv sync --group dev
 ```
 
-This installs:
+See [release preparation](docs/releasing.md) for publication and archive steps.
 
-- the Python package in editable mode
-- `pytest`
-- `nanobind`
-- `scikit-build-core`
-
-To build the standalone CLI and the extension through CMake:
-
-```bash
-cmake -S . -B build -DPython_EXECUTABLE=$(uv run python -c 'import sys; print(sys.executable)')
-cmake --build build
-```
-
-## Python API
-
-Model objects make the kinetic equations and blood-fraction setting explicit:
-
-```python
-import kinepet
-
-model = kinepet.Reversible2TCM(vb=kinepet.FittedVB())
-fit = kinepet.fit_tacs(tacs, time, aif, model=model)
-
-# A known nonzero vascular contribution:
-model = kinepet.Irreversible2TCM(vb=kinepet.FixedVB(0.05))
-fit = kinepet.fit_one_tac(tac, time, aif, model=model)
-
-# Use FixedVB(0.0) to omit the vascular contribution.
-```
-
-Both model types default to `FittedVB()`. `FixedVB` accepts finite fractions in
-`[0, 1]`. The same objects work with `evaluate_model()` and `default_bounds()`.
-For a fixed model, evaluation uses its known blood fraction; supplying a different
-`vB` raises `ValueError`. For a fitted model, evaluation uses the supplied numeric
-`vB`, defaulting to `0.05`.
-
-Existing string-based calls remain supported, with their existing defaults:
+## Working example
 
 ```python
 import numpy as np
 import kinepet
 
-fit = kinepet.fit_tacs(
-    tacs,
-    time,
-    aif,
-    model="rev",
-    fit_vb=True,
-    threads=8,
-)
+time = np.array([0., .0833, .1667, .25, .3333, .5, .75, 1., 1.5,
+                 2., 3., 5., 8., 12., 20., 30., 45.])  # minutes
+aif = 12 * np.exp(-time / .3) + 1.5 * np.exp(-time / 6)
+model = kinepet.Reversible2TCM(vb=kinepet.FittedVB())
 
-print(fit.K1.shape)      # (N,)
-print(fit.status.shape)  # (N,)
+tac = kinepet.evaluate_model(
+    time, aif, model=model, K1=.09, k2=.22, k3=.11, k4=.06, vB=.04,
+)
+fit = kinepet.fit_one_tac(tac, time, aif, model=model, max_iterations=200)
+print(fit.K1, fit.k2, fit.k3, fit.k4, fit.vB)
+print(fit.status, fit.rmse)
+
+# Batch input has shape (number of time samples, number of TACs).
+batch = kinepet.fit_tacs(np.column_stack([tac, tac]), time, aif, model=model)
 ```
 
-Single-TAC fitting:
+Use `Irreversible2TCM` for irreversible kinetics, `FixedVB(0.05)` for a known
+blood fraction, or `FixedVB(0.0)` for no vascular contribution. Both kinetic
+models default to `FittedVB()`. Legacy calls such as
+`fit_tacs(tacs, time, aif, model="rev", fit_vb=True)` remain supported. With a
+model object, specify blood fraction on the object and omit `fit_vb`/`fixed_vb`.
 
-```python
-fit = kinepet.fit_one_tac(
-    tac,
-    time,
-    aif,
-    model="irr",
-    fit_vb=True,
-)
-```
+## Inputs and interpretation
 
-Forward evaluation:
+- `tacs`: `(T, N)`; each column is one TAC.
+- `time`, `aif`, and optional `weights`: `(T,)`, `(T, 1)`, or `(T, N)`.
+- A vector or single column is shared across TACs. Per-TAC AIFs require per-TAC
+  times, and shared AIFs require shared times.
+- Time, delay, and dispersion are in **minutes**. There is no automatic unit
+  conversion. Times must be finite, nonnegative, and strictly increasing.
+- Fits require at least four samples and finite TAC/AIF values. Weights are
+  finite nonnegative residual multipliers; each TAC needs at least one positive
+  weight. Zero-weight samples must still contain finite inputs.
 
-```python
-pred = kinepet.evaluate_model(
-    time,
-    aif,
-    model="rev",
-    K1=0.12,
-    k2=0.16,
-    k3=0.09,
-    k4=0.04,
-    vB=0.05,
-)
-```
+Invalid data yields `invalid_input` (`status_code=5`) for the affected TAC;
+other columns continue fitting. Invalid global solver options raise an error.
+Numerical evaluation failure yields `failed` (`0`), not convergence. Inspect
+status, residuals, and parameter plausibility: a small optimization step alone
+(`2`) is a weaker success signal than gradient (`1`) or cost (`3`) convergence.
+`fitted_tacs` counts attempted fits with valid input, including failed and
+iteration-limited fits; it is not a success count.
 
-Useful helpers:
-
-- `kinepet.default_bounds(...)`
-- `kinepet.default_frame_weights(time)`
-
-With a model object, set blood fraction on the object and omit `fit_vb` and
-`fixed_vb`; combining both forms raises `ValueError`. For legacy string models,
-omitting those options retains `fit_vb=True` and `fixed_vb=0.05`. Internally,
-`None` marks an omitted option so conflicting configurations can be detected.
+Outputs are flat per-TAC parameters (`K1`, `k2`, `k3`, optional `k4`, `vB`,
+optional `delay`/`dispersion`, `Ki`), RMSE, weighted cost, iterations, and status.
+Python exposes both status names and numeric codes. See
+[scientific conventions](docs/models.md) for sampling, vascular mixing,
+AIF treatment, weights, and the interpretation of `Ki`.
 
 ## CLI
 
-Build first, then run:
-
 ```bash
-./build/tcm_fit_tacs --input-dir INPUT --output-dir OUTPUT --model rev|irr [options]
+cmake -S . -B build -DPython_EXECUTABLE="$(uv run python -c 'import sys; print(sys.executable)')"
+cmake --build build
+./build/tcm_fit_tacs --input-dir INPUT --output-dir OUTPUT --model rev --threads 4
 ```
 
-Supported options:
+The input directory contains `tacs.npy`, `time.npy`, and `aif.npy` with the same
+shapes and units as the Python API. Supply weights through `--weights-file`.
+The CLI writes per-TAC `.npy` outputs and `run.txt`; weighted cost is currently
+Python-only. See [CLI options and filenames](docs/cli.md).
 
-- `--fit-vb 0|1`
-- `--fixed-vb VALUE`
-- `--fit-delay 0|1`
-- `--fixed-delay VALUE`
-- `--fit-dispersion 0|1`
-- `--fixed-dispersion VALUE`
-- `--threads N`
-- `--max-iter N`
-- `--weights-file PATH`
-- `--no-linear-warm-start`
-
-Outputs are flat `(N,)` arrays:
-
-- `K1.npy`
-- `k2.npy`
-- `k3.npy`
-- `k4.npy` for `rev`
-- `vB.npy`
-- `delay.npy` when fitted or fixed to a nonzero value
-- `dispersion.npy` when fitted or fixed to a nonzero value
-- `Ki.npy`
-- `rmse.npy`
-- `iterations.npy`
-- `status.npy`
-- `run.txt`
-
-## Current default bounds
-
-The source of truth for bounds is `src/parameters.cpp`.
-
-Current defaults:
-
-- `K1`: `[0, 10]`
-- `k2`: `[0, 10]`
-- `k3`: `[0, 5]`
-- `k4`: `[0, 1]` when active
-- `vB`: `[0, 1]` when fitted
-- `delay`: `[-0.2, 0.2]` minutes when fitted
-- `dispersion`: `[0, 0.1]` minutes when fitted
-
-## Scripts
-
-Generate TACs from a simulated parameter CSV and export fitted parameters:
-
-```bash
-uv run --group extra python scripts/fit_from_csv.py input.csv fitted.csv --model rev --fit-vb
-```
-
-Generate a synthetic TAC batch:
-
-```bash
-python3 scripts/make_synthetic_dataset.py data/synthetic_tacs --model rev --num-tacs 64
-```
-
-Run VOI comparison export:
-
-```bash
-uv run python scripts/extract_voi_reference_fits.py --threads 1
-```
-
-That script uses:
-
-- `time` and `aif` from the raw NPZ files
-- `Brain` and `Myocardium` from `VOI_A`
-- `kinepet` for the TAC-based solver path
-- the PyPET reference implementation
-- the installed `lls` package
-
-## Tests
-
-Run:
+## Validation and benchmarking
 
 ```bash
 uv run pytest -q
-```
-
-Build C++ targets as above, then also run:
-
-```bash
 ctest --test-dir build --output-on-failure
+uv run python scripts/benchmark.py --num-tacs 128 --repeats 3 --threads 1
 ```
 
-The tests cover model objects and legacy calls, fitted/fixed/zero blood fraction,
-shared/per-TAC timing and AIFs, optional AIF parameters, repeated-root forward
-kinetics, and direct reversible coefficient recovery. C++ warm starts are checked
-against pre-refactor baselines. After building the CLI, pytest also checks CLI/API
-parity across 36 model/input configurations. If the CLI is elsewhere, set
-`KINEPET_CLI` to its executable path; otherwise those tests skip when it is absent.
+The tests cover LLS recovery, independent ODE checks, invalid inputs, typed and
+legacy API calls, and CLI/API parity. Rebuild the extension after C++ edits with
+`uv sync --group dev --reinstall-package kinepet`. CLI tests require the built
+executable, or `KINEPET_CLI` pointing to it.
 
-## Notes
+The synthetic benchmark writes throughput, native-grid errors, failure counts,
+settings, and environment information. It measures consistency and local
+performance; it does not reproduce the paper's timings. See
+[reproducibility](docs/reproducibility.md) for validation scope, paper provenance,
+and optional PyPET/LLS comparison exports. External error metrics must be
+converted to a common metric before comparing methods.
 
-- The nonlinear solver is custom C++, not SciPy TRF copied line-for-line.
-- There is exactly ONE forward-model implementation in this repo: the compiled C++
-  entrypoint `src/tcm_model.cpp` dispatches to `src/models/irreversible.cpp` or
-  `src/models/reversible.cpp`, reachable from Python as `kinepet.evaluate_model(...)`.
-  It integrates the piecewise-linear AIF with the exact exponential step and
-  agrees with an ODE integration (`scipy.integrate.solve_ivp`) to machine
-  precision, including for very small rate constants. The previous
-  `scripts/kinetics.py` NumPy model has been removed.
-- Synthetic data is generated with that same C++ model, so a noiseless batch
-  fits back to its parameters (median relative error ~1e-4). Generating with a
-  separate implementation would make the dataset a different target than the
-  one the solver minimizes and would bias every recovered parameter.
-- Delay and dispersion support are available, but simultaneous estimation is
-  still more stable than the core kinetic parameters on difficult curves.
+## Code organization
+
+The fitting path is Python/CLI → batch orchestration → per-TAC solver → model evaluation.
+
+| Responsibility | Location |
+| --- | --- |
+| Model types and blood fraction | `src/model.hpp` |
+| Tissue kinetics and exact convolution | `src/models/` |
+| AIF transformation and vascular mixing | `src/aif.cpp`, `src/tcm_model.cpp` |
+| Parameter layout and bounds | `src/parameters.cpp` |
+| LLS dispatch, regression, parameter recovery | `src/lls.cpp`, `src/lls/` |
+| Nonlinear optimization and input checks | `src/solver.cpp`, `src/validation.hpp` |
+| TAC batches, CLI, Python binding | `src/tac_batch.cpp`, `src/tac_fit_main.cpp`, `src/python_bindings.cpp` |
+| Python API | `kinepet/` |
+
+[The architecture guide](docs/architecture.md) maps model dispatch and recovery
+coefficients. Applications and synthetic-data scripts use the single compiled
+forward implementation through `kinepet.evaluate_model`.
+
+## Citation and license
+
+Please cite the exact release used in your research. [CITATION.cff](CITATION.cff)
+provides provisional software citation metadata; the archive and paper DOIs will
+be added when available.
+
+The maintainer has selected AGPLv3 and will add the license text and final SPDX
+metadata before public release. Publication is gated on those additions.
+Bundled dependency notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

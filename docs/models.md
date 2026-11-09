@@ -70,3 +70,50 @@ Default active bounds:
 ## Parameter order note
 
 KinePET's exported names are canonical. Some external comparison methods use different parameter orders, so normalize names before comparing methods.
+
+## Scientific conventions
+
+Time, delay, and dispersion are in minutes; k2, k3, and k4 are in min⁻¹.
+K1 has tissue-concentration / input-concentration / minute units (conventionally
+mL blood or plasma per mL or g tissue per minute, depending on the inputs).
+`vB` is dimensionless. Supply compatible TAC and AIF activity units.
+
+Predictions are **point samples at the supplied times**, not frame-averaged
+integrals. The AIF is piecewise linear, with a linear ramp from zero at time zero
+when the first sample time is positive. The tissue compartments initially contain
+zero tracer. AIF values below `1e-5` in the supplied activity units are set to zero
+before optional transformation; this includes negative values. This absolute
+threshold means rescaling activity can affect very small AIF samples.
+
+The measured signal is `(1-vB) * (C1+C2) + vB * AIF`. The same supplied/transformed
+AIF drives tissue delivery and vascular mixing. The library does not independently
+model plasma and whole-blood curves, metabolites, or hematocrit. Apply and report
+any required corrections consistently before fitting; this convention may not
+represent every tracer's physiology.
+
+The optional transformation is
+`max(0, AIF(t + delay) + dispersion * dAIF/dt(t + delay))`.
+A positive delay samples later measured AIF values; a negative delay samples
+earlier ones. Sampling before time zero gives zero, and sampling beyond the
+last measurement holds the endpoint constant with zero derivative. At interior
+knots the right-hand slope is used; the last endpoint has zero derivative.
+Dispersion here is a first-order derivative correction, not convolution with an
+exponential dispersion kernel. Simultaneous estimation of delay/dispersion and
+kinetic parameters can be poorly identified; both options are off by default.
+
+The minimized cost is `0.5 * sum((weights * (prediction - TAC))**2)`.
+Weights multiply residuals, so they are squared in the objective. Defaults are
+the square roots of sample spacings (centered spacings internally, adjacent
+spacings at endpoints, widths floored at `1e-6` minutes). They are not a Poisson
+variance model or measured frame durations. RMSE is unweighted on native samples.
+
+`Ki = K1*k3/(k2+k3)` is returned for both models (zero when the denominator is
+at most `1e-12`). It is the net irreversible influx macroparameter when `k4=0`.
+For reversible kinetics it is that same algebraic combination, not a claim of
+permanent trapping or long-time net influx. Interpret it alongside k4 and the
+tracer model.
+
+Convergence does not establish parameter identifiability or physiological
+validity. Inspect bounds, residual structure, acquisition duration, and sensitivity
+before interpreting fitted parameters. The repeated-eigenvalue reversible branch
+uses numerical RK4 integration; see [validation scope](reproducibility.md).

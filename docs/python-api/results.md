@@ -45,3 +45,12 @@ name = kinepet.status_code_to_name(2)
 ```
 
 For batch results, `fit.status` already contains strings and `fit.status_code` preserves the original numeric codes.
+
+Invalid numerical data (nonfinite signals, nonincreasing/negative time, negative
+weights, or all-zero weights) produces status `invalid_input` (`5`) for that TAC,
+with NaN parameter/diagnostic values for active outputs and zero iterations.
+Inactive k4/delay/dispersion retain their normal zero/omitted conventions.
+Other TACs in the batch continue fitting. Invalid global solver options raise an
+error. Finite inputs that cause numerical evaluation failure produce `failed`
+(`0`), not a convergence status. `fitted_tacs` counts attempted fits with valid
+inputs, including failed or iteration-limited attempts; it is not a success count.
