@@ -1,14 +1,17 @@
 # Single TAC Fitting
 
-Use `kinepet.fit_one_tac()` when you have one curve.
+`kinepet.fit_one_tac()` fits one measured curve. The examples below use the
+one-dimensional arrays `tac`, `time`, and `aif`.
 
 ```python
+import kinepet
+
+model = kinepet.Irreversible2TCM(vb=kinepet.FittedVB())
 fit = kinepet.fit_one_tac(
     tac,
     time,
     aif,
-    model="irr",
-    fit_vb=True,
+    model=model,
 )
 ```
 
@@ -16,11 +19,11 @@ fit = kinepet.fit_one_tac(
 
 The options match `fit_tacs()`, except there is no `threads` argument because only one TAC is fitted.
 
-You can also pass an explicit model object:
+For a known blood fraction, construct a fixed-fraction model:
 
 ```python
-model = kinepet.Irreversible2TCM(vb=kinepet.FixedVB(0.05))
-fit = kinepet.fit_one_tac(tac, time, aif, model=model)
+fixed_model = kinepet.Irreversible2TCM(vb=kinepet.FixedVB(0.05))
+fit = kinepet.fit_one_tac(tac, time, aif, model=fixed_model)
 ```
 
 Model objects own their blood-fraction setting; omit the legacy `fit_vb` and
@@ -43,15 +46,16 @@ print(fit.status)
 print(fit.status_code)
 ```
 
-For `model="rev"`, `fit.k4` contains the reversible exchange parameter. For `model="irr"`, `fit.k4` is `None`.
+For `Reversible2TCM`, `fit.k4` contains the reversible exchange parameter. For `Irreversible2TCM`, `fit.k4` is `None`. Fixed blood fractions are still returned in `fit.vB`.
 
 ## Round trip with `evaluate_model`
 
 ```python
+reversible = kinepet.Reversible2TCM(vb=kinepet.FittedVB())
 tac = kinepet.evaluate_model(
     time,
     aif,
-    model="rev",
+    model=reversible,
     K1=0.12,
     k2=0.16,
     k3=0.09,
@@ -59,5 +63,8 @@ tac = kinepet.evaluate_model(
     vB=0.05,
 )
 
-fit = kinepet.fit_one_tac(tac, time, aif, model="rev", max_iterations=200)
+fit = kinepet.fit_one_tac(tac, time, aif, model=reversible, max_iterations=200)
 ```
+
+The forward call supplies the numeric `vB`; the fitting call estimates it because
+`reversible` uses `FittedVB()`. The model configuration is unchanged by either call.

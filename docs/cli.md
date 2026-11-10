@@ -64,6 +64,17 @@ Optional weights can be passed with `--weights-file`:
 | `--weights-file PATH` | Optional `.npy` weights array. |
 | `--no-linear-warm-start` | Disable linear least-squares initialization. |
 
+The CLI uses model names and flags rather than Python objects. Equivalent
+configurations are:
+
+| Python model | CLI options |
+| --- | --- |
+| `Reversible2TCM(vb=FittedVB())` | `--model rev --fit-vb 1` |
+| `Reversible2TCM(vb=FixedVB(0.05))` | `--model rev --fit-vb 0 --fixed-vb 0.05` |
+| `Irreversible2TCM(vb=FixedVB(0.0))` | `--model irr --fit-vb 0 --fixed-vb 0.0` |
+
+Delay and dispersion flags apply independently to either kinetic model.
+
 ## Output files
 
 The CLI writes flat `(N,)` arrays:

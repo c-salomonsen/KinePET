@@ -1,16 +1,19 @@
 # Batch Fitting
 
-Use `kinepet.fit_tacs()` for the main TAC-batch workflow.
+`kinepet.fit_tacs()` fits each column of a TAC matrix using the selected model.
+The examples below assume measured arrays `tacs`, `time`, and `aif`; see
+[Getting Started](../getting-started.md) for a complete synthetic example.
 
 ```python
+import kinepet
+
+model = kinepet.Reversible2TCM(vb=kinepet.FittedVB())
 fit = kinepet.fit_tacs(
     tacs,
     time,
     aif,
     weights=None,
-    model="rev",
-    fit_vb=True,
-    fixed_vb=0.05,
+    model=model,
     fit_delay=False,
     fixed_delay=0.0,
     fit_dispersion=False,
@@ -42,7 +45,7 @@ fit = kinepet.fit_tacs(
 For a shared AIF, pass a shared time vector:
 
 ```python
-fit = kinepet.fit_tacs(tacs, time, aif, model="rev")
+fit = kinepet.fit_tacs(tacs, time, aif, model=model)
 ```
 
 For per-TAC AIFs, pass per-TAC times:
@@ -52,7 +55,7 @@ fit = kinepet.fit_tacs(
     tacs,
     time_matrix,  # shape (T, N)
     aif_matrix,   # shape (T, N)
-    model="rev",
+    model=model,
 )
 ```
 
@@ -62,34 +65,44 @@ All time columns are interpreted in minutes, even when a scan extends beyond 60 
 
 ## Optional fitted parameters
 
-By default KinePET fits `vB`, does not fit delay, and does not fit dispersion.
+Blood fraction is configured on the model. Both kinetic model classes default
+to `FittedVB()`. To use a known value for every TAC in the batch:
 
 ```python
-model = kinepet.Reversible2TCM(vb=kinepet.FixedVB(0.05))
-fit = kinepet.fit_tacs(tacs, time, aif, model=model)
+fixed_model = kinepet.Reversible2TCM(vb=kinepet.FixedVB(0.05))
+fit = kinepet.fit_tacs(tacs, time, aif, model=fixed_model)
 ```
 
-With a model object, omit `fit_vb` and `fixed_vb`; specifying either raises
-`ValueError`. The defaults below describe legacy string calls. Their Python
-signature uses `None` to represent an omitted blood-fraction option.
+Use `FixedVB(0.0)` to omit the vascular contribution. With a model object, omit
+`fit_vb` and `fixed_vb`; specifying either also raises `ValueError`. See
+[Models and Parameters](../models.md#compatibility-with-string-based-calls) for
+legacy string-based equivalents.
+
+Delay and dispersion are configured on the fitting call for either model:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `fit_vb` | `True` | Fit blood volume fraction. |
-| `fixed_vb` | `0.05` | Used when `fit_vb=False`. |
-| `fit_delay` | `False` | Fit AIF delay in minutes. |
-| `fixed_delay` | `0.0` | Used when `fit_delay=False`. |
-| `fit_dispersion` | `False` | Fit AIF dispersion in minutes. |
-| `fixed_dispersion` | `0.0` | Used when `fit_dispersion=False`. Must be non-negative. |
+| `fit_delay` | `False` | Estimate AIF delay in minutes. |
+| `fixed_delay` | `0.0` | Delay used when `fit_delay=False`. |
+| `fit_dispersion` | `False` | Estimate AIF dispersion in minutes. |
+| `fixed_dispersion` | `0.0` | Dispersion used when `fit_dispersion=False`; must be finite and nonnegative. |
 
-Delay and dispersion are available, but simultaneous estimation can be less stable than fitting the core kinetic parameters on difficult curves.
+For example, to estimate delay while holding dispersion at zero:
+
+```python
+fit = kinepet.fit_tacs(tacs, time, aif, model=model, fit_delay=True)
+```
+
+Estimating delay or dispersion together with tissue rates can reduce parameter
+identifiability. See [scientific conventions](../models.md#scientific-conventions)
+for the transformation definition and time units.
 
 ## Return value
 
 `fit_tacs()` returns `BatchFitResult`. Parameter arrays are flat `(N,)` arrays:
 
 ```python
-fit = kinepet.fit_tacs(tacs, time, aif, model="rev")
+fit = kinepet.fit_tacs(tacs, time, aif, model=model)
 
 print(fit.K1)
 print(fit.k2)
@@ -101,7 +114,7 @@ print(fit.rmse)
 print(fit.status)
 ```
 
-For `model="irr"`, `fit.k4` is `None`. `fit.delay` and `fit.dispersion` are also `None` unless the corresponding parameter is fitted or fixed to a nonzero value.
+For `Irreversible2TCM`, `fit.k4` is `None`. `fit.delay` and `fit.dispersion` are also `None` unless the corresponding parameter is fitted or fixed to a nonzero value.
 
 Use `as_dict()` when you want to iterate over returned fields:
 

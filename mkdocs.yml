@@ -18,6 +18,7 @@ theme:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Models and Parameters: models.md
   - Python API:
       - Overview: python-api/index.md
       - Batch fitting: python-api/batch-fitting.md
@@ -26,7 +27,6 @@ nav:
       - Helpers: python-api/helpers.md
   - Data Format: data-format.md
   - CLI: cli.md
-  - Models and Parameters: models.md
   - Architecture: architecture.md
   - Development: development.md
   - Validation and Reproducibility: reproducibility.md

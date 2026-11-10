@@ -15,9 +15,26 @@ reconstruction of parameter maps belong in the calling application.
 
 ## Installation
 
-Python 3.11 or later is required. Release CI builds and tests wheels for
-CPython 3.11–3.13 on Linux, Windows, and macOS. To install from a source checkout,
-run the following command from the repository root:
+Python 3.11 or later is required. Install from PyPI in a virtual environment
+with pip:
+
+```bash
+python -m pip install kinepet
+```
+
+Or with uv:
+
+```bash
+uv venv --python 3.11
+uv pip install kinepet
+```
+
+For an existing uv project, use `uv add kinepet`. See
+[Getting Started](docs/getting-started.md#install) for environment setup and
+activation instructions.
+
+Release CI builds and tests wheels for CPython 3.11–3.13 on Linux, Windows, and
+macOS. To install from a source checkout, run from the repository root:
 
 ```bash
 python -m pip install .

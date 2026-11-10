@@ -1,36 +1,81 @@
 # Models and Parameters
 
-KinePET supports two public model names:
+A model object selects the tissue equations and determines whether the vascular
+blood fraction is fitted or fixed.
 
-| Name | Model |
-| --- | --- |
-| `irr` | Irreversible two-tissue compartment model |
-| `rev` | Reversible two-tissue compartment model |
+| Python class | Tissue parameters fitted | Equivalent string name |
+| --- | --- | --- |
+| `Irreversible2TCM` | K1, k2, k3; k4 is zero | `"irr"` |
+| `Reversible2TCM` | K1, k2, k3, k4 | `"rev"` |
 
 ## Explicit model objects
 
 ```python
-from kinepet import Reversible2TCM, Irreversible2TCM, FittedVB, FixedVB
+import kinepet
 
-reversible = Reversible2TCM(vb=FittedVB())
-irreversible = Irreversible2TCM(vb=FixedVB(0.05))
-no_vascular_contribution = Reversible2TCM(vb=FixedVB(0.0))
+reversible = kinepet.Reversible2TCM(vb=kinepet.FittedVB())
+irreversible = kinepet.Irreversible2TCM(vb=kinepet.FixedVB(0.05))
+no_vascular_contribution = kinepet.Reversible2TCM(vb=kinepet.FixedVB(0.0))
 ```
 
-Both kinetic types default to `FittedVB()`. They are immutable descriptions of
-the equations and blood-fraction estimation; optimization remains in the shared
-compiled solver. `FixedVB(value)` requires a finite value in `[0, 1]`.
+Both kinetic classes default to `FittedVB()`: `Reversible2TCM()` estimates K1, k2,
+k3, k4, and vB when passed to a fitting function. Model objects are immutable
+configurations and can be reused across fits. Construct another object to change
+the model or blood fraction. Fitted values are returned in a result object.
 
-Pass these objects to `fit_tacs`, `fit_one_tac`, `evaluate_model`, or
-`default_bounds`. With a model object, omit legacy `fit_vb` / `fixed_vb` options;
-combining both configuration forms raises `ValueError`.
+Pass a model instance to `fit_tacs`, `fit_one_tac`, `evaluate_model`, or
+`default_bounds`. The fitting functions perform LLS initialization and nonlinear
+optimization using the shared solver; the model objects have no fitting methods.
 
-For evaluation, a `FixedVB` object supplies the blood fraction. A conflicting
-numeric `vB` raises `ValueError`. For a `FittedVB` object, provide the numeric
-fraction through `vB` (default `0.05`), since evaluation does not estimate it.
+### Blood-fraction settings
 
-Legacy `model="irr"` / `model="rev"` calls retain their prior behavior and defaults.
-The optional AIF delay and dispersion settings are independent of either model.
+| Setting | Behavior during fitting |
+| --- | --- |
+| `FittedVB()` | Estimate vB separately for each TAC. |
+| `FixedVB(0.05)` | Hold vB at 0.05 for every TAC in the call. |
+| `FixedVB(0.0)` | Set vB to zero, omitting the vascular contribution. |
+
+`FixedVB(value)` requires a finite value in `[0, 1]`. Its default value is `0.05`;
+writing the value explicitly makes the assumption visible. The constructor
+argument is lowercase `vb`, and it accepts a `FittedVB` or `FixedVB` object:
+
+```python
+model = kinepet.Reversible2TCM(vb=kinepet.FixedVB(0.05))
+```
+
+With a model object, omit `fit_vb` and `fixed_vb` from fitting and bounds calls.
+Supplying either legacy option as well raises `ValueError`, even when it agrees
+with the model's setting.
+
+### Forward evaluation
+
+`evaluate_model` computes a curve from supplied parameters. For a model with
+`FittedVB()`, supply the numeric blood fraction through the case-sensitive `vB`
+argument; omission uses `0.05`. `FittedVB()` does not estimate anything during
+forward evaluation.
+
+A model with `FixedVB(value)` supplies its own fraction, so `vB` can be omitted.
+An explicit `vB` must equal the model's value; a conflicting value raises
+`ValueError`. See [forward evaluation examples](python-api/helpers.md#evaluate_model).
+
+### Compatibility with string-based calls
+
+The following configurations are equivalent for fitting:
+
+| Model object | String-based arguments |
+| --- | --- |
+| `Reversible2TCM()` | `model="rev", fit_vb=True` |
+| `Irreversible2TCM()` | `model="irr", fit_vb=True` |
+| `Reversible2TCM(vb=FixedVB(0.05))` | `model="rev", fit_vb=False, fixed_vb=0.05` |
+| `Irreversible2TCM(vb=FixedVB(0.0))` | `model="irr", fit_vb=False, fixed_vb=0.0` |
+
+String-based calls retain effective defaults `model="rev"`, `fit_vb=True`, and
+`fixed_vb=0.05` when these arguments are omitted. Model objects make the same
+choices explicit without combining a model name and blood-fraction flags.
+
+Delay and dispersion remain independent fitting options on `fit_tacs` and
+`fit_one_tac`. They are disabled by default for both model types. Their numeric
+values are passed separately to `evaluate_model` when generating a curve.
 
 Canonical parameter names:
 
@@ -52,7 +97,7 @@ For the irreversible model, `k4` is not active and Python result objects expose 
 The source of truth for bounds is `src/parameters.cpp`. Use `kinepet.default_bounds()` to inspect active bounds from Python:
 
 ```python
-kinepet.default_bounds(model="rev", fit_vb=True, fit_delay=True, fit_dispersion=True)
+kinepet.default_bounds(kinepet.Reversible2TCM(), fit_delay=True, fit_dispersion=True)
 ```
 
 Default active bounds:
