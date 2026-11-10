@@ -4,6 +4,27 @@ KinePET fits dynamic PET time–activity curves (TACs) with a bounded nonlinear
 solver and linear least-squares initialization. The Python API and the standalone
 `tcm_fit_tacs` CLI share the same compiled C++ fitting core.
 
+<figure style="margin: 1.5em 0;">
+  <img src="assets/figures/reversible-2tcm.svg"
+       alt="Reversible two-tissue compartment model: arterial input C_A exchanges with tissue compartment f through K1 and k2; f exchanges with compartment b through k3 and k4. Tissue activity q combines f and b; measured PET activity m includes the vascular contribution."
+       style="display: block; width: 640px; max-width: 100%; height: auto; margin: 0 auto;">
+  <figcaption style="margin-top: 0.75em; text-align: center;">
+    Reversible two-tissue compartment model fitted by KinePET.
+    <a href="assets/figures/reversible-2tcm.pdf">Download the figure as PDF</a>.
+  </figcaption>
+</figure>
+
+The arterial input function `C_A(t)` supplies tracer to two tissue compartments,
+`f(t)` and `b(t)`, whose combined activity is `q(t) = f(t) + b(t)`. The measured
+PET curve includes both tissue and vascular activity:
+`m(t) = (1-vB) * q(t) + vB * C_A(t)`.
+
+KinePET estimates the transfer rates K1, k2, k3, and k4 from the measured TAC and
+the supplied arterial input function. `Reversible2TCM` fits the model shown
+above; `Irreversible2TCM` fixes k4 to zero, removing the return path from `b(t)`
+to `f(t)`. See [Models and Parameters](models.md#scientific-conventions) for
+sampling, units, and AIF conventions.
+
 Choose a kinetic model and a blood-fraction setting:
 
 | Python model | Tissue parameters | CLI model name |
