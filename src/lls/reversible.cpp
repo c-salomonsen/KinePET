@@ -52,7 +52,7 @@ bool recover_reversible_fitted_vb(const Coefficients& coefficients, ParameterVec
   // alpha=k2+k3+k4, beta=k2*k4, gamma=K1*(k3+k4).
   // a1=-alpha, a2=-beta, a3=vB,
   // a4=vB*alpha+(1-vB)*K1, a5=vB*beta+(1-vB)*gamma.
-  // These a1..a5 follow the derivation's regressor order above exactly.
+  // Coefficients a1..a5 correspond to the design columns defined above.
   const double a1 = coefficients[0];
   const double a2 = coefficients[1];
   const double a3 = coefficients[2];
@@ -77,7 +77,7 @@ bool recover_reversible_fixed_vb(const Coefficients& coefficients, ParameterVect
   // b1=-(k2+k3+k4), b2=-k2*k4, b3=K1, b4=K1*(k3+k4).
   params.K1 = coefficients[2];
   if (params.K1 <= kRecoveryEpsilon) return false;
-  // Preserve the legacy epsilon in this fixed-vB inversion.
+  // The denominator epsilon regularizes this fixed-vB inversion near zero K1.
   const double s = coefficients[3] / (params.K1 + kRecoveryEpsilon);
   params.k2 = -coefficients[0] - s;
   if (std::abs(params.k2) <= kRecoveryEpsilon) return false;

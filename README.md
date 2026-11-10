@@ -16,8 +16,8 @@ reconstruction of parameter maps belong in the calling application.
 ## Installation
 
 Python 3.11 or later is required. Release CI builds and tests wheels for
-CPython 3.11–3.13 on Linux, Windows, and macOS. The public PyPI release is being
-prepared; until it is published, install from this checkout:
+CPython 3.11–3.13 on Linux, Windows, and macOS. To install from a source checkout,
+run the following command from the repository root:
 
 ```bash
 python -m pip install .
@@ -31,7 +31,7 @@ are limited to NumPy. Development dependencies resolve from public PyPI:
 uv sync --group dev
 ```
 
-See [release preparation](docs/releasing.md) for publication and archive steps.
+See [the development guide](docs/development.md) for build and test instructions.
 
 ## Working example
 
@@ -115,8 +115,8 @@ executable, or `KINEPET_CLI` pointing to it.
 
 The synthetic benchmark writes throughput, native-grid errors, failure counts,
 settings, and environment information. It measures consistency and local
-performance; it does not reproduce the paper's timings. See
-[reproducibility](docs/reproducibility.md) for validation scope, paper provenance,
+performance on generated TACs. See
+[reproducibility](docs/reproducibility.md) for validation scope, analysis provenance,
 and optional PyPET/LLS comparison exports. External error metrics must be
 converted to a common metric before comparing methods.
 

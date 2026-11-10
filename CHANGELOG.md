@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 (unreleased)
 
 ### Added
 
@@ -27,13 +27,13 @@
   result containers have separate modules.
 - Distribution builds omit C++ test targets; standalone CMake builds retain CTest.
 
-Existing string-model calls, effective defaults, result shapes, CLI flags and
-filenames, status semantics, bounds, and numerical algorithms are preserved.
+The model API refactor preserves string-model calls, effective defaults, result
+shapes, CLI flags and filenames, status semantics, bounds, and numerical algorithms.
 With a model object, configure blood fraction on that object; combining it with
 legacy `fit_vb` / `fixed_vb` options raises `ValueError`. A standalone evaluation
 also rejects a numeric `vB` that conflicts with the model's `FixedVB`.
 
-### Release-readiness fixes
+### Fixes and distribution updates
 
 - Reject nonfinite inputs, invalid time grids/weights, and invalid solver options
   in the shared C++ path. Preserve per-TAC invalid status 5 in batch outputs;
@@ -47,8 +47,6 @@ also rejects a numeric `vB` that conflicts with the model's `FixedVB`.
   comparison-export smoke test, and a reproducible synthetic benchmark.
 - Resolve public development dependencies without a private index. Prepare
   Trusted Publishing with release metadata/license gates and numerical wheel tests.
-- Add dependency notices, contribution guidance, citation scaffold, scientific
+- Add dependency notices, contribution guidance, citation metadata, scientific
   conventions, paper provenance, and release instructions.
-
-The development version is `0.5.0.dev0`; the published `0.4.0` tag/artifacts remain
-unchanged. The maintainer will add AGPLv3 text and license metadata before release.
+- Add AGPL-3.0-only licensing and SPDX notices to project source and build files.

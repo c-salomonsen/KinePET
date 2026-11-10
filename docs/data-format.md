@@ -51,4 +51,4 @@ Main outputs:
 | `iterations` | Always |
 | `status` | Always |
 
-KinePET does not produce image maps, masks, rescue overlays, rawfit arrays, or post-filtered arrays. Image reconstruction and preprocessing should happen outside the core solver.
+Image preprocessing and reconstruction of parameter maps from per-TAC outputs are handled by the calling application.

@@ -27,7 +27,7 @@ struct LinearInputs {
                const std::vector<double>& input, const std::vector<double>& measured);
 };
 
-// q = (m - vB*C_A)/(1 - vB). Preserve the warm-start-only [0, .95] clamp.
+// q = (m - vB*C_A)/(1 - vB), with vB clamped to [0, .95] for LLS preprocessing.
 std::vector<double> tissue_curve(const LinearInputs& data, double vb);
 constexpr double kRecoveryEpsilon = 1e-8;
 

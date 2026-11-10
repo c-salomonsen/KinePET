@@ -1,70 +1,103 @@
-# Public release procedure
+# Release procedure
 
-## Items the maintainer must complete
+## License and citation metadata
 
-1. Add the chosen AGPLv3 text as `LICENSE` and set `project.license` in
-   `pyproject.toml` to `AGPL-3.0-only` or `AGPL-3.0-or-later`, consistently with
-   the intended grant. Confirm rights-holder notices. The license is deliberately
-   left for the maintainer; the publication gate refuses to upload without it.
-   `LICENSE*` and `THIRD_PARTY_NOTICES.md` are included in wheels automatically.
-2. Confirm the citation author list and the paper revision described in
-   [reproducibility](reproducibility.md). Archive the exact paper release with
-   Zenodo and add its DOI, release version/date, and eventually the article DOI
-   to `CITATION.cff`. The current contributor entity is a provisional attribution.
-3. Make any separately required comparison packages/data publicly available or
-   document their access conditions. The optional LLS reference is still external.
-4. Make the GitHub repository public when ready. Configure GitHub environments
-   `testpypi` and `pypi` with release-tag restrictions and required reviewers.
-5. Register pending Trusted Publishers on TestPyPI and PyPI: owner
-   `c-salomonsen`, repository `KinePET`, workflow `publish.yml`, environment
-   `testpypi` or `pypi`, project `kinepet`. Verify name availability on each service.
-   No upload token or private package server is used by the new workflow.
+The project uses AGPL-3.0-only. Each release must include the full license text
+in `LICENSE`, matching `project.license` metadata in `pyproject.toml`, and the
+copyright notices in the source files. The publication preflight checks for
+license text and metadata before building distributions.
 
-## Validate and publish
+License files included in wheels are configured in `pyproject.toml`. They include
+`LICENSE`, `THIRD_PARTY_NOTICES.md`, and `third_party_licenses/*.txt`.
 
-Keep `v0.4.0` and its artifacts unchanged. This branch uses `0.5.0.dev0` until a
-release version is chosen. Update `pyproject.toml`, regenerate `uv.lock`, update
-the changelog and citation, and commit before creating a matching `vVERSION` tag.
+Before release, verify the author list in `CITATION.cff` and add the release
+version and date. Archive releases with Zenodo and record the software DOI;
+add the associated article DOI when available. For a paper archive, verify the
+software revision against the analysis environment and retain the original
+results and artifacts. The current analysis record is described in
+[reproducibility](reproducibility.md).
 
-Run the tests from [development](development.md), then:
+Comparison packages and data need versioned sources or documented access
+conditions. The optional LLS reference package is distributed separately.
+
+## Publishing configuration
+
+Public releases use GitHub Actions and PyPI Trusted Publishing. The GitHub
+repository must be accessible to users of the published software. Configure
+GitHub environments named `testpypi` and `pypi`, with release-tag restrictions
+and approval protection for production uploads.
+
+Register a Trusted Publisher on each package index with these settings:
+
+| Setting | PyPI | TestPyPI |
+| --- | --- | --- |
+| Project | `kinepet` | `kinepet` |
+| GitHub owner | `c-salomonsen` | `c-salomonsen` |
+| Repository | `KinePET` | `KinePET` |
+| Workflow filename | `publish.yml` | `publish.yml` |
+| Environment | `pypi` | `testpypi` |
+
+For a new project, register a pending publisher and verify name availability.
+The workflow uses GitHub's publishing identity without a stored upload token.
+See [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/using-a-publisher/).
+
+## Prepare a version
+
+1. Set the package version in `pyproject.toml`, for example `0.4.1`.
+2. Regenerate `uv.lock` with `uv lock`.
+3. Update the changelog and citation metadata with the release version and date.
+4. Run the checks below and commit the release changes.
+5. Create the matching Git tag, for example `v0.4.1`.
+
+Previously published tags and artifacts must retain their original contents.
+The release preflight requires the tag to match the package version and rejects
+development versions for production PyPI uploads.
+
+## Validate distributions
+
+Run the tests described in [development](development.md), then build into a
+fresh output directory:
 
 ```bash
 uv run --group docs mkdocs build --strict
-uv build
-uvx twine check dist/*
+uv run python scripts/check_release.py --tag v0.4.1
+uv build --out-dir dist/0.4.1
+uv run python scripts/check_distributions.py dist/0.4.1 --require-license
+uvx twine check dist/0.4.1/*
 ```
 
-Use a clean distribution directory to avoid mixing old releases. Inspect source
-and wheel contents, licenses, metadata, and bundled binary dependencies. The
-notices cover nanobind, robin-map, and commonly bundled OpenMP runtimes; verify
-any additional library introduced by platform wheel repair before release.
-Identify the OpenMP runtime and version bundled in each platform wheel. The
-stored runtime license texts were copied from GCC 14.2.0 and LLVM 19.1.7;
-check them against the actual bundled versions and update the notices and texts
-when necessary, including after build-image changes.
-Install the wheel into a clean environment outside the checkout and run
-`scripts/wheel_smoke.py`. Also build a wheel from the sdist.
+Substitute the intended version in the tag and output path. Inspect archive
+contents, license metadata, and bundled binary dependencies. Identify the OpenMP
+runtime and version bundled in each platform wheel. The stored runtime license
+texts were copied from GCC 14.2.0 and LLVM 19.1.7; check them against the bundled
+versions and update notices when necessary, including after build-image changes.
+Any additional library introduced by wheel repair needs its applicable notices.
 
-The distribution workflow builds CPython 3.11–3.13 wheels on Linux, Windows, and
-macOS and runs a numerical installed-wheel check. Local success does not replace
-those platform results. The publication workflow requires the test suite, CLI
-checks, documentation build, distribution builds, matching tag/version, and
-license preflight to succeed before upload.
+Build a wheel from the source archive. Install it into a clean environment
+outside the checkout and run `scripts/wheel_smoke.py` against that installation.
 
-For rehearsal, use a version tag and manually dispatch `Publish Distributions`
-with `repository=testpypi`. Install NumPy from PyPI first, then install the exact
-KinePET wheel from TestPyPI with `--no-deps` to avoid using TestPyPI as a source
-for unrelated dependencies. Run the installed-wheel check. A pushed `v*` tag
-selects production PyPI; the protected `pypi` environment should require review.
-Development versions are rejected by the production preflight. No version should
-be overwritten or reused with different contents.
+CI builds CPython 3.11–3.13 wheels on Linux, Windows, and macOS and runs numerical
+installed-wheel checks. Publication requires successful Python and C++ tests,
+CLI checks, a documentation build, distribution builds, archive checks, and
+release metadata validation.
 
-The workflow follows [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/using-a-publisher/).
-After publishing, verify a clean `pip install kinepet==VERSION`, create the
-GitHub release, archive it, and link the paper to the versioned record.
+## TestPyPI and production uploads
+
+The workflow supports manual dispatch with `repository=testpypi` or
+`repository=pypi` on a version tag. Pushing a `v*` tag also starts the production
+workflow; configure production approval protection before pushing the tag.
+Approve the production upload only after the TestPyPI checks pass.
+
+For a TestPyPI check, install NumPy from PyPI, then install the exact KinePET
+version from TestPyPI with `--no-deps`. Run the installed-wheel check in that
+environment. This keeps unrelated dependencies on their normal package index.
+
+After production publication, verify a clean `pip install kinepet==VERSION`,
+create the GitHub release, archive it, and update citation links to the versioned
+record. Package versions must not be reused for different distribution contents.
 
 ## Documentation hosting
 
-Documentation continues to use `https://kinepet.salodev.no/`. GitHub Pages is an
-optional later migration; update `site_url`, `docs/CNAME`, and any redirects
-together when changing the public URL.
+The documentation URL is `https://kinepet.salodev.no/`. A hosting change requires
+coordinated updates to `site_url` in `mkdocs.yml`, `docs/CNAME`, project URLs, and
+redirects from the previous address.

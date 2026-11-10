@@ -83,10 +83,8 @@ def generate_time(frame_protocol: tuple[tuple[int, int], ...], dt_s: float) -> t
 def generate_curves(df: pd.DataFrame, dt_s: float, tinj_s: float, model: ModelName) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Generate a synthetic TAC batch from a parameter table.
 
-    The forward model is ``kinepet.evaluate_model``, i.e. the same compiled C++
-    code the solver fits. Generating with a separate Python implementation would
-    make the dataset a different target from the one the solver minimizes, which
-    biases every recovered parameter even on noiseless data.
+    Curves are generated with ``kinepet.evaluate_model`` so simulation and
+    fitting use the same compiled kinetics and AIF interpolation conventions.
     """
     t_fine_min, t_fine_s, time_min = generate_time(TIME_PROTOCOL, dt_s)
     frame_durations_s = np.concatenate(

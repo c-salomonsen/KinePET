@@ -106,9 +106,7 @@ def main() -> None:
     params["delay"].fill(args.delay)
     params["dispersion"].fill(args.dispersion)
 
-    # Generate with the same compiled C++ forward model the solver fits, so a
-    # fitted batch recovers these parameters. A separate Python implementation
-    # would make the dataset a different target than the solver minimizes.
+    # Share the compiled kinetics and AIF interpolation with the fitter.
     n_tacs = len(params["K1"])
     tacs = np.empty((time.size, n_tacs), dtype=np.float64)
     for i in range(n_tacs):

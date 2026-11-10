@@ -17,7 +17,7 @@ Source installs require:
 - CMake
 - a C++20 compiler toolchain
 
-The Python API imports the compiled `_core` extension, so CMake is required for source installs even if you do not plan to use the standalone CLI. If you install a prebuilt wheel, CMake should not be needed because the extension is already compiled.
+Source installation builds the `_core` extension used by the Python API. Prebuilt wheels include this extension and require no local CMake installation or compiler.
 
 ## First batch fit
 

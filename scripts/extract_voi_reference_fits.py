@@ -495,7 +495,7 @@ def main() -> None:
         try:
             import lls
         except ImportError as exc:
-            raise SystemExit("The optional LLS comparison requires the maintainer's lls package; see docs/reproducibility.md") from exc
+            raise SystemExit("Missing optional reference package lls; see docs/reproducibility.md for access and installation requirements") from exc
 
     npz_paths = discover_pickles(args.raw_npz_glob)
     voi_paths = discover_pickles(args.voi_glob)

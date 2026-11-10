@@ -39,7 +39,7 @@ def main():
         "fit_settings": dict(fit_vb=True, fit_delay=False, fit_dispersion=False,
                              max_iterations=200, gradient_tolerance=1e-10, cost_tolerance=1e-16),
         "models": {},
-        "scope": "Synthetic consistency and local throughput; not a reproduction of paper timings or an independent physical validation.",
+        "scope": "Synthetic consistency and local throughput on generated TACs. Independent physical validation is covered by the compartment ODE tests.",
     }
     root = Path(__file__).resolve().parents[1]
     try:

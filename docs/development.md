@@ -6,7 +6,7 @@
 uv sync --group dev
 ```
 
-This installs the package in editable mode and builds the compiled Python extension. Source installs require CMake and a C++20 compiler toolchain; they are not only CLI prerequisites.
+This installs the package in editable mode and builds the compiled Python extension. Source builds require CMake and a C++20 compiler toolchain.
 
 ## Run tests
 
@@ -76,7 +76,7 @@ Before a release, build both distributions and check their contents:
 uv build
 ```
 
-This branch uses `0.5.0.dev0` to distinguish it from the paper’s published
-`0.4.0`. Follow [the release procedure](releasing.md) before publishing.
+The package version is defined in `pyproject.toml`. Follow
+[the release procedure](releasing.md) to prepare a versioned distribution.
 After editing C++ sources, rebuild the editable extension with
 `uv sync --group dev --reinstall-package kinepet` before running Python tests.

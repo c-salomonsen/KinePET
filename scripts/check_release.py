@@ -20,10 +20,10 @@ def main():
     if args.repository == "pypi" and ".dev" in version:
         raise SystemExit("Choose a release version before publishing to PyPI")
     if project.get("license") not in ("AGPL-3.0-only", "AGPL-3.0-or-later"):
-        raise SystemExit("Maintainer must add the chosen AGPLv3 SPDX expression to project.license")
+        raise SystemExit("Missing or unsupported project.license: expected AGPL-3.0-only or AGPL-3.0-or-later")
     license_path = root / "LICENSE"
     if not license_path.is_file() or "GNU AFFERO GENERAL PUBLIC LICENSE" not in license_path.read_text():
-        raise SystemExit("Maintainer must add the full AGPLv3 license text as LICENSE")
+        raise SystemExit("Missing or invalid LICENSE: expected the full AGPLv3 license text")
     if "salodev.no" in (root / "uv.lock").read_text():
         raise SystemExit("Release dependency lock must use public package sources")
     print(f"Release metadata checks passed: {version}")

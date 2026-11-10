@@ -24,7 +24,7 @@ Primary result types:
 | `BatchFitResult` | `fit_tacs()` |
 | `SingleTacFitResult` | `fit_one_tac()` |
 
-The API is intentionally light. Input validation and dataclass result wrappers live in Python; the nonlinear fitting core runs in the compiled extension.
+Python handles array normalization, shape validation, model descriptions, and result containers. Numerical input validation and fitting run in the compiled extension.
 
 ## Model descriptions
 

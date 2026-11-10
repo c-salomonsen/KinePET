@@ -23,15 +23,15 @@ const auto initial = tcm::warm_start(model, aif_options, bounds, time, aif, tac)
 ```
 
 `src/model.hpp` defines `Irreversible2TCM`, `Reversible2TCM`, `FittedVB`, and
-`FixedVB`. `Model` is a `std::variant` holding either kinetic type: dispatch uses
-its actual type, without virtual base classes or a solver inheritance hierarchy.
+`FixedVB`. `Model` is a `std::variant` holding either kinetic type;
+`std::visit` dispatches operations to the corresponding overload.
 Both kinetic types carry a `BloodFraction` setting in their `vb` member.
 
 A fixed blood fraction can be nonzero. `FixedVB{0.0}` is the special case without
 a vascular contribution. Delay and dispersion are independent optional fit
 parameters, grouped in `AifOptions` as named `delay` and `dispersion` settings.
 
-Python model objects are immutable. The wrappers translate them to the existing
+Python model objects are immutable. The wrappers translate them to the
 nanobind arguments; the binding translates those arguments into typed C++ models
 once, before batch fitting. The CLI similarly translates its flags after parsing,
 so argument order cannot change the model's blood-fraction setting.
@@ -106,16 +106,15 @@ columns for reversible kinetics or three for irreversible kinetics. Their
 coefficient ordering differs from the fitted-blood-fraction formulations and is
 specified explicitly in each recovery function.
 
-Preserved numerical details matter when comparing initialization:
+The LLS initialization uses the following numerical conventions:
 
 - Integrals start at the first supplied time sample; no missing initial interval
   is inserted by LLS.
 - Regression uses ridge `1e-6` on the normal-equation diagonal.
-- Recovery retains the existing `1e-8` thresholds and denominator epsilons.
-- The fixed-blood-fraction LLS preprocessing retains its `[0, 0.95]` clamp.
-  The final parameters still use the configured fixed fraction through parameter
-  unpacking. This existing distinction was preserved, rather than changed during
-  the readability refactor.
+- Recovery uses `1e-8` thresholds and denominator epsilons to handle degenerate coefficients.
+- Fixed-blood-fraction LLS preprocessing clamps the fraction to `[0, 0.95]`.
+  Parameter unpacking uses the configured fixed fraction for the nonlinear fit,
+  including values above `0.95`.
 - LLS uses the input AIF directly; it does not solve delay or dispersion. Those
   parameters retain their initial/fixed values for nonlinear refinement.
 - Invalid kinetic recovery rejects the warm start. Accepted parameters are
@@ -124,7 +123,7 @@ Preserved numerical details matter when comparing initialization:
 ## Finding the forward equations
 
 `src/tcm_model.cpp` is the single public compiled forward-evaluation path. It
-preserves the existing AIF thresholding and transformations, calls the appropriate
+applies AIF thresholding and optional transformations, calls the appropriate
 `kinetics::evaluate_tissue` overload, and applies:
 
 ```text
@@ -149,10 +148,10 @@ packing/unpacking enforces fixed parameters during optimization. The Python
 wrapper additionally resolves a model object's `FixedVB` during standalone
 forward evaluation and rejects a conflicting explicit `vB`.
 
-Synthetic generation and reference plotting must continue to call
-`kinepet.evaluate_model`; do not introduce a second NumPy kinetics implementation.
+Synthetic generation and reference plotting use `kinepet.evaluate_model` so
+that simulation and fitting share the same numerical implementation.
 
-## Verification and continuing the refactor
+## Verification
 
 `tests/cpp/test_core.cpp` checks pre-refactor warm-start baselines for both models,
 fitted/fixed/zero blood fraction, and zero/positive first sample times. It also
@@ -161,9 +160,8 @@ parameter ordering/packing across all optional-parameter combinations.
 
 `tests/test_models.py` checks typed/legacy API parity and repeated-root behavior.
 `tests/test_cli.py` checks CLI/API parity with shared/per-TAC inputs and optional
-AIF parameters. Existing binding and small-rate regression tests remain in place.
-
-Keep future changes focused on one responsibility. Update this map when moving
-code; preserve the shared optimizer and compiled forward path unless a functional
-change explicitly requires otherwise. The refactor leaves the package version
-at `0.5.0.dev0`; unreleased changes are recorded in `CHANGELOG.md`.
+AIF parameters. `tests/test_bindings.py` covers parameter recovery and small-rate
+regressions. `tests/test_validation.py` checks invalid inputs and numerical failures;
+`tests/test_physical_reference.py` compares predictions with independent ODE
+integration. See [validation and reproducibility](reproducibility.md) for the
+scope and tolerances of these checks.

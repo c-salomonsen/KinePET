@@ -10,13 +10,10 @@ namespace {
 
 constexpr double kTinyRate = 1e-12;
 
-// Below this rate the closed form of exp_conv_step loses all significant
-// digits: its i1 term is (1 - decay * (1 + rate * dt)) / rate^2, where the
-// numerator vanishes like rate^2, so the ratio cancels catastrophically. The
-// reversible model is exposed because its slow eigenvalue is a product ratio,
-// a2 = 2*k2*k4 / (s + sqrt(s^2 - 4*k2*k4)), which vanishes whenever k2 or k4
-// is small; the irreversible model's rate is the sum k2 + k3 and is immune.
-// At 1e-4 the relative error is already ~5e-8 and climbs to ~1e-2 by 1e-7.
+// Use a series when |rate*dt| is small: subtraction in
+// 1 - exp(-rate*dt)*(1 + rate*dt) loses precision as rate*dt approaches zero.
+// In reversible kinetics the slow eigenvalue approaches zero when either
+// k2 or k4 does, even if the other rate constants remain appreciable.
 constexpr double kSmallRate = 1e-3;
 
 }  // namespace
@@ -37,7 +34,7 @@ double exp_conv_step(double z, double rate, double dt, double c0, double c1) {
   // numerator cancels to zero for small x and the division by rate^2 destroys
   // the result. Expanded in x it is
   //   i1 = dt^2 * (1/2 - x/3 + x^2/8 - x^3/30 + x^4/144 - ...),
-  // which keeps full precision all the way down to rate = 0.
+  // avoiding subtraction of nearly equal values for small x.
   const double x = rate * dt;
   const double i1 =
       std::abs(x) < kSmallRate

@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "Please cite the exact KinePET release used in your work. Add the software archive DOI and associated paper citation when available."
+message: "Please cite the version of KinePET used in your work, including its release number or commit identifier."
 type: software
 title: "KinePET: TAC-based fitting of dynamic PET two-tissue compartment models"
 authors:

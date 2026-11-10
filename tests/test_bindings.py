@@ -10,7 +10,7 @@ import kinepet
 
 
 def exp_conv_step(z: float, rate: float, dt: float, c0: float, c1: float) -> float:
-    """Independent reimplementation of the solver's exact convolution step.
+    """Python reference mirroring the solver's convolution formula for parity checks.
 
     Mirrors ``src/models/convolution.cpp`` including the power-series branch, which is
     required for the reversible model: its slow eigenvalue is a product ratio
@@ -227,17 +227,12 @@ def test_fit_tacs_rejects_invalid_aif_columns() -> None:
 
 
 def test_reversible_model_stays_accurate_as_k2_and_k4_vanish() -> None:
-    """Regression for the ``exp_conv_step`` cancellation hole.
+    """Check smooth limits as either k2 or k4 approaches zero.
 
-    The reversible slow eigenvalue is the product ratio
-    ``a2 = 2*k2*k4 / (s + sqrt(s^2 - 4*k2*k4))``, which vanishes whenever k2 or
-    k4 does (the irreversible rate k2+k3 is a sum and never does). The direct
-    closed form of ``i1 = (1 - e^-x(1+x)) / rate^2`` cancels catastrophically
-    for small rates, so the model used to lose the linear-in-k4 behaviour
-    entirely: at k4=1e-10 the old build was off by 7.6e4 in absolute terms.
-
-    A correct implementation is smooth in that limit, i.e. the deviation from
-    the k4=0 (resp. k2=0) curve must fall off linearly with the tiny parameter.
+    The reversible slow eigenvalue approaches zero in either limit. Direct
+    evaluation of ``i1 = (1 - exp(-x)*(1+x)) / rate**2`` loses precision for
+    small x. The series branch must preserve the linear dependence of the
+    curve's deviation on the small parameter over the tested range.
     """
     time = make_time()
     aif = 12.0 * np.exp(-time / 0.3) + 1.5 * np.exp(-time / 6.0)
@@ -250,8 +245,7 @@ def test_reversible_model_stays_accurate_as_k2_and_k4_vanish() -> None:
         dev = np.max(np.abs(kinepet.evaluate_model(time, aif, k2=0.1, k4=k4,
                                                    **base_kwargs) - at_zero))
         ratios.append(dev / k4)
-    # A constant ratio across ten decades is the signature of correct behaviour;
-    # the buggy build's ratio grew by ~8e17 over the same range.
+    # Linear dependence gives a constant deviation/k4 ratio over this range.
     assert_allclose(ratios, ratios[0], rtol=1e-3,
                     err_msg=f"k4 -> 0 is not smooth; deviation/k4 = {ratios}")
 
@@ -267,15 +261,12 @@ def test_reversible_model_stays_accurate_as_k2_and_k4_vanish() -> None:
 
 
 def test_reversible_warm_start_is_a_good_starting_point() -> None:
-    """Regression for the reversible formulation of ``warm_start``.
+    """Check that reversible LLS initialization improves a fit with one iteration.
 
-    It divided ``p5`` by the wrong bracket and then built its quadratic from
-    ``k3 + k4`` instead of ``k3``, which shrank the recovered root sum to about
-    ``k2`` (k2 ~18% low, k4 ~21% high, k3 ~2x high) and made the inversion bail
-    out on ~28% of samples. The LM solver still converges from a bad start given
-    enough iterations, so the defect is not visible in the converged fit; it is
-    visible in how good the START is. A tight iteration budget isolates that:
-    with one iteration the result is essentially the starting point.
+    Nonlinear optimization can compensate for incorrect LLS parameter recovery
+    given enough iterations. Comparing warm and default initialization under a
+    one-iteration budget exposes poor starting values. The longer fit separately
+    checks convergence to the generating parameters.
     """
     time = make_time()
     aif = 12.0 * np.exp(-time / 0.3) + 1.5 * np.exp(-time / 6.0)
@@ -292,7 +283,7 @@ def test_reversible_warm_start_is_a_good_starting_point() -> None:
         f"warm start barely beats the default guess: warm rmse {warm.rmse}, "
         f"cold rmse {cold.rmse}")
 
-    # And a converged fit from it must still recover the truth.
+    # The longer fit must recover the generating parameters.
     fit = kinepet.fit_one_tac(tac, time, aif, model="rev", max_iterations=200,
                               use_linear_warm_start=True)
     assert fit.status_code in (1, 2, 3)
