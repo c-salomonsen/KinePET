@@ -23,7 +23,9 @@ conditions. The optional LLS reference package is distributed separately.
 ## Publishing configuration
 
 The GitHub Actions workflow builds Linux, Windows, and macOS wheels and a source
-archive, runs validation, then uploads to official PyPI or TestPyPI. Authentication
+archive once. After validation, it uploads to TestPyPI, prepares a draft GitHub
+release, and waits for production approval. It then uploads the same files to
+official PyPI and publishes the GitHub release. Authentication
 uses Trusted Publishing (OIDC); no API token, password, or `.pypirc` file is
 needed by the workflow. Local Twine credentials are independent of GitHub Actions.
 
@@ -36,7 +38,7 @@ rule matching `v*`. Branch rules and tag rules are separate.
 For `pypi`, enable **Required reviewers** and select the release maintainer.
 A sole maintainer who triggers and approves releases must leave **Prevent
 self-review** disabled. Save the protection rules before pushing any release tag:
-tag pushes automatically start a production publishing run. The environment
+tag pushes automatically start the release pipeline. The environment
 approval holds the upload while the release is checked on TestPyPI.
 
 An environment with another name, such as `publish-ci`, does not supply the
@@ -77,11 +79,11 @@ These credentials are optional when releases use the OIDC workflow above.
 
 ## Prepare a version
 
-1. Set the package version in `pyproject.toml`, for example `0.4.1`.
+1. Set the package version in `pyproject.toml`, for example `0.4.2`.
 2. Regenerate `uv.lock` with `uv lock`.
 3. Update the changelog and citation metadata with the release version and date.
 4. Run the checks below and commit the release changes.
-5. Create the matching Git tag, for example `v0.4.1`.
+5. Create the matching Git tag, for example `v0.4.2`.
 
 Previously published tags and artifacts must retain their original contents.
 The release preflight requires the tag to match the package version and rejects
@@ -94,10 +96,10 @@ fresh output directory:
 
 ```bash
 uv run --group docs mkdocs build --strict
-uv run python scripts/check_release.py --tag v0.4.1
-uv build --out-dir dist/0.4.1
-uv run python scripts/check_distributions.py dist/0.4.1 --require-license
-uvx twine check --strict dist/0.4.1/*
+uv run python scripts/check_release.py --tag v0.4.2
+uv build --out-dir dist/0.4.2
+uv run python scripts/check_distributions.py dist/0.4.2 --require-license
+uvx twine check --strict dist/0.4.2/*
 ```
 
 Substitute the intended version in the tag and output path. Inspect archive
@@ -115,35 +117,75 @@ installed-wheel checks. Publication requires successful Python and C++ tests,
 CLI checks, a documentation build, distribution builds, archive checks, and
 release metadata validation.
 
+## Routine CI and release checks
+
+| Trigger | Checks |
+| --- | --- |
+| Push to `main` or a pull request | One Linux job on Python 3.13: C++ tests, Python tests, and CLI/API parity |
+| Documentation, MkDocs configuration, dependency metadata, or documentation-workflow changes | Strict documentation build |
+| Version tag | Python 3.11–3.13 tests, C++/CLI checks, documentation, source archive, and Linux/Windows/macOS wheels |
+| Manual **Tests** run | Full Python matrix by default; a single configuration can be selected |
+| Manual **Build Distributions** run | Source archive and all platform wheels, without publication |
+
+The release workflow calls the same test and build workflows used for manual
+checks. Ordinary pushes do not build distribution wheels. The separate
+**Documentation** workflow has path filters; do not make it a required branch
+protection check that must complete on every pull request.
+
+If branch protection requires the previous Python or CLI job names, update it to
+require `Python and C++ tests (3.13)` after the new workflow has run.
+
 ## TestPyPI and production uploads
 
-Both manual dispatch and tag pushes require a tag matching `pyproject.toml`,
-for example `v0.4.1`. Pushing a `v*` tag starts production publishing; the `pypi`
-environment must already have its approval rule configured. A push to `main`
-runs tests and distribution builds but does not publish a package.
-
-Push the reviewed workflow changes to `main` before using manual dispatch.
-Each release run uses the workflow and source at its selected tag. Updating
+Push the reviewed workflow changes to `main` before creating the next release
+tag. Each release run uses the workflow and source at its selected tag. Updating
 `main` does not update an existing tag. Never move an archived release tag to
 pick up workflow changes; use a new version when the tagged workflow or package
 contents need to change.
 
-For an existing tag whose workflow already supports official PyPI and OIDC,
-configure the publishers and dispatch that tag directly. Using GitHub CLI:
+For a new version, after completing the preparation and validation steps:
 
 ```bash
-gh workflow run publish.yml --repo c-salomonsen/KinePET --ref v0.4.1 -f repository=testpypi
+git tag -a v0.4.2 -m "KinePET 0.4.2"
+git push origin v0.4.2
 ```
 
-The workflow rebuilds the distributions, runs tests and metadata/license checks,
-and uploads to TestPyPI. Inspect the run under **Actions → Publish Distributions**.
+Substitute the intended version. The `v*` tag push starts **Publish
+Distributions**, which performs these steps:
 
-Verify installation in a fresh environment outside the checkout:
+1. Check the tag, package version, license, and matching changelog section.
+2. Run the full tests and documentation build, and build all distributions.
+3. Validate the archives and save them with SHA-256 checksums in the
+   `release-distributions` Actions artifact, retained for 90 days.
+4. Upload those files to TestPyPI through the `testpypi` environment. If that
+   environment also has a reviewer rule, approve its deployment first.
+5. Create a draft GitHub release using the version's changelog entry. An existing
+   draft is reused, preserving any edits to its notes.
+6. Wait for approval of the `pypi` environment deployment.
+7. Upload the same saved distributions to PyPI, then publish the GitHub release.
+
+The workflow downloads the saved artifact by its immutable artifact ID and
+verifies checksums before each upload. There is no rebuild between TestPyPI and
+PyPI. Required reviewers on the `pypi` environment provide the manual approval
+step; without that protection, the pipeline continues automatically.
+
+While the production job is waiting, review the draft release under the
+repository's **Releases** page. Edit and save the draft notes if necessary; leave
+publication to the workflow. Verify installation in a fresh environment outside
+the checkout. With uv:
 
 ```bash
 uv venv /tmp/kinepet-testpypi --python 3.13
 uv pip install --python /tmp/kinepet-testpypi/bin/python numpy
-uv pip install --python /tmp/kinepet-testpypi/bin/python --index-url https://test.pypi.org/simple/ --no-deps kinepet==0.4.1
+uv pip install --python /tmp/kinepet-testpypi/bin/python --index-url https://test.pypi.org/simple/ --no-deps kinepet==0.4.2
+```
+
+Or with pip:
+
+```bash
+python3.13 -m venv /tmp/kinepet-testpypi
+/tmp/kinepet-testpypi/bin/python -m pip install numpy
+/tmp/kinepet-testpypi/bin/python -m pip install --index-url https://test.pypi.org/simple/ --no-deps kinepet==0.4.2
 ```
 
 Run `scripts/wheel_smoke.py` from the selected release against that installed
@@ -151,21 +193,53 @@ package. On Windows, substitute a suitable temporary path and the environment's
 `Scripts/python.exe`. Installing NumPy separately keeps dependencies on their
 normal package index.
 
-After verification, either approve the production run already waiting from the
-tag push, or dispatch one production run explicitly:
+After verification, open the waiting workflow run, choose **Review deployments**,
+and approve `pypi`. Do not start a separate production run. After publication,
+verify a clean installation from official PyPI and check the GitHub release and
+Zenodo archive. Record the versioned DOI in the citation metadata when available.
+
+### Manual runs and recovery
+
+To start the pipeline manually for a tag that contains this workflow:
+
+```bash
+gh workflow run publish.yml --repo c-salomonsen/KinePET --ref v0.4.2
+```
+
+Manual runs follow the same TestPyPI → approval → PyPI sequence. Dispatching on a
+branch fails the tag check. Do not dispatch another run if a release run for that
+version is already waiting or has uploaded packages.
+
+If a job fails before uploading any files, correct the external configuration
+where applicable and use **Re-run failed jobs** on the same run. Successful build
+and upload jobs remain complete, and downstream jobs reuse the saved artifacts.
+If only GitHub release publication fails after PyPI succeeds, rerun that failed
+job; do not repeat the package upload.
+
+If an upload stops after publishing some files, inspect the package index and
+compare the uploaded files' hashes with `SHA256SUMS` before deciding how to
+complete the release. The workflow deliberately fails on existing filenames;
+it does not silently skip or replace them. Avoid **Re-run all jobs** after any
+upload: rebuilding a published version can produce different files. Changes to
+package contents require a new version. Expired artifacts also require a
+separate recovery plan, rather than rebuilding under a published version.
+
+### Existing v0.4.1 tag
+
+The archived `v0.4.1` tag retains its earlier workflow, which has separate
+`repository=testpypi` and `repository=pypi` manual dispatches. An in-progress run
+at that tag is unaffected by these changes. Complete its existing procedure
+without moving the tag:
 
 ```bash
 gh workflow run publish.yml --repo c-salomonsen/KinePET --ref v0.4.1 -f repository=pypi
 ```
 
-Approve its `pypi` deployment when prompted. Do not start another production run
-if one for that version is already waiting. The production dispatch rebuilds and
-checks artifacts; it does not promote the files uploaded to TestPyPI. Published
-filenames cannot be overwritten, and the workflow does not silently skip them.
-
-After production publication, verify a clean `pip install kinepet==VERSION`,
-create the GitHub release, archive it, and update citation links to the versioned
-record. Package versions must not be reused for different distribution contents.
+Use this command only after checking the existing TestPyPI run and only if no
+production run for `v0.4.1` is already waiting or complete. That older workflow
+rebuilds distributions for production and does not create a GitHub release;
+create the release for the existing tag separately. Subsequent version tags
+that include the new workflow use the single-build procedure above.
 
 ## Documentation hosting
 

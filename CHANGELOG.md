@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Run one Linux/Python configuration on routine pushes and pull requests; build
+  documentation when its sources or build configuration change.
+- Reserve the full Python test matrix and platform distribution builds for
+  release tags and manual runs.
+- Build release artifacts once, publish to TestPyPI for review, then promote the
+  same files to PyPI after environment approval. Prepare draft GitHub release
+  notes from the changelog and publish the release after the PyPI upload.
+
 ## 0.4.1 (unreleased)
 
 ### Added
