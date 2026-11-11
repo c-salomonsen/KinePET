@@ -113,7 +113,9 @@ Build a wheel from the source archive. Install it into a clean environment
 outside the checkout and run `scripts/wheel_smoke.py` against that installation.
 
 CI builds CPython 3.11–3.13 wheels on Linux, Windows, and macOS and runs numerical
-installed-wheel checks. Publication requires successful Python and C++ tests,
+installed-wheel checks. macOS wheels target Apple Silicon (`arm64`) and build on
+the `macos-15` runner; Intel macOS wheels are not included in this matrix.
+Publication requires successful Python and C++ tests,
 CLI checks, a documentation build, distribution builds, archive checks, and
 release metadata validation.
 
@@ -226,20 +228,17 @@ separate recovery plan, rather than rebuilding under a published version.
 
 ### Existing v0.4.1 tag
 
-The archived `v0.4.1` tag retains its earlier workflow, which has separate
-`repository=testpypi` and `repository=pypi` manual dispatches. An in-progress run
-at that tag is unaffected by these changes. Complete its existing procedure
-without moving the tag:
+The archived `v0.4.1` tag retains its earlier workflow, including the retired
+`macos-14` runner. GitHub retired that runner on November 2, 2026; affected jobs
+stop before compilation, and publication is skipped because it requires every
+distribution build to succeed. See the
+[runner retirement notice](https://github.com/actions/runner-images/issues/13518).
 
-```bash
-gh workflow run publish.yml --repo c-salomonsen/KinePET --ref v0.4.1 -f repository=pypi
-```
-
-Use this command only after checking the existing TestPyPI run and only if no
-production run for `v0.4.1` is already waiting or complete. That older workflow
-rebuilds distributions for production and does not create a GitHub release;
-create the release for the existing tag separately. Subsequent version tags
-that include the new workflow use the single-build procedure above.
+Rerunning that tag still uses the old runner, even after the fix reaches `main`.
+Preserve the archived tag and prepare a new patch release containing the updated
+workflow. To check the fixed platform builds before tagging, push the changes
+and manually run **Build Distributions** on `main`; this does not publish any
+packages. The next release tag uses the single-build procedure above.
 
 ## Documentation hosting
 

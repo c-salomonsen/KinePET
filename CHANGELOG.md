@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Build Apple Silicon wheels on the supported `macos-15` runner, replacing the
+  retired `macos-14` runner that prevented release publication.
 - Run one Linux/Python configuration on routine pushes and pull requests; build
   documentation when its sources or build configuration change.
 - Reserve the full Python test matrix and platform distribution builds for
