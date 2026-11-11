@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/1231964802.svg)](https://doi.org/10.5281/zenodo.24132815)
+
 # KinePET
 
 KinePET fits dynamic PET time–activity curves (TACs) with reversible and
