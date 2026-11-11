@@ -11,7 +11,9 @@ version = "0.4.1"
 description = "TAC-based nonlinear fitting for dynamic PET two-tissue compartment models"
 readme = "README.md"
 requires-python = ">=3.11"
-maintainers = [{name = "c-salomonsen"}]
+license = "AGPL-3.0-only"
+authors = [{name = "Christian Salomonsen"}]
+maintainers = [{name = "Christian Salomonsen", email="christian.salomonsen@uit.no"}]
 keywords = ["PET", "kinetic modeling", "compartment model", "nonlinear least squares"]
 classifiers = [
     "Development Status :: 4 - Beta",

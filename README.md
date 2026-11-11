@@ -154,12 +154,9 @@ The fitting path is Python/CLI → batch orchestration → per-TAC solver → mo
 coefficients. Applications and synthetic-data scripts use the single compiled
 forward implementation through `kinepet.evaluate_model`.
 
-## Citation and license
+## License
 
-Please cite the exact release used in your research. [CITATION.cff](CITATION.cff)
-provides provisional software citation metadata; the archive and paper DOIs will
-be added when available.
+Copyright © 2026 Christian Salomonsen.
 
-The maintainer has selected AGPLv3 and will add the license text and final SPDX
-metadata before public release. Publication is gated on those additions.
-Bundled dependency notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+KinePET is licensed under the GNU Affero General Public License,
+version 3 only (AGPL-3.0-only). See [LICENSE](LICENSE) for the full terms.
