@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Christian Salomonsen
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: Deploy Documentation Artifact
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy documentation to GitHub Pages
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Deploy the validated artifact from this run
+        id: deployment
+        uses: actions/deploy-pages@v4

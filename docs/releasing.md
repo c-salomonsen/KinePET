@@ -124,7 +124,7 @@ release metadata validation.
 | Trigger | Checks |
 | --- | --- |
 | Push to `main` or a pull request | One Linux job on Python 3.13: C++ tests, Python tests, and CLI/API parity |
-| Documentation, MkDocs configuration, dependency metadata, or documentation-workflow changes | Strict documentation build; pushes to `main` also deploy to GitHub Pages |
+| Documentation, MkDocs configuration, dependency metadata, or documentation-workflow changes | Strict documentation build without deployment |
 | Version tag | Python 3.11–3.13 tests, C++/CLI checks, documentation, source archive, and Linux/Windows/macOS wheels |
 | Manual **Tests** run | Full Python matrix by default; a single configuration can be selected |
 | Manual **Build Distributions** run | Source archive and all platform wheels, without publication |
@@ -132,9 +132,10 @@ release metadata validation.
 The release workflow calls the same test and build workflows used for manual
 checks. Ordinary pushes do not build distribution wheels. The **Documentation**
 workflow validates pull requests and releases;
-**Publish Documentation** reuses that build and deploys changes from `main`.
-Both use path filters for ordinary changes; do not make them required branch
-protection checks that must complete on every pull request.
+the release pipeline deploys its validated documentation artifact after package
+and GitHub release publication. **Publish Documentation** is a manual override
+with an explicit source ref. Routine documentation checks use path filters; do
+not require them to complete on every pull request in branch protection.
 
 If branch protection requires the previous Python or CLI job names, update it to
 require `Python and C++ tests (3.13)` after the new workflow has run.
@@ -167,6 +168,8 @@ Distributions**, which performs these steps:
    draft is reused, preserving any edits to its notes.
 6. Wait for approval of the `pypi` environment deployment.
 7. Upload the same saved distributions to PyPI, then publish the GitHub release.
+8. Deploy the documentation artifact built from that release commit to GitHub
+   Pages. This uses the earlier validated build, without rebuilding the site.
 
 The workflow downloads the saved artifact by its immutable artifact ID and
 verifies checksums before each upload. There is no rebuild between TestPyPI and
@@ -218,7 +221,9 @@ If a job fails before uploading any files, correct the external configuration
 where applicable and use **Re-run failed jobs** on the same run. Successful build
 and upload jobs remain complete, and downstream jobs reuse the saved artifacts.
 If only GitHub release publication fails after PyPI succeeds, rerun that failed
-job; do not repeat the package upload.
+job; do not repeat the package upload. Likewise, if only documentation deployment
+fails, fix the Pages configuration and rerun the failed jobs. PyPI and GitHub
+release publication remain complete.
 
 If an upload stops after publishing some files, inspect the package index and
 compare the uploaded files' hashes with `SHA256SUMS` before deciding how to
@@ -246,11 +251,16 @@ packages. The next release tag uses the single-build procedure above.
 
 The documentation is hosted at
 [https://kinepet.salodev.no/](https://kinepet.salodev.no/).
-The **Publish Documentation** workflow (`.github/workflows/pages.yml`) calls the
-shared strict MkDocs build, uploads `site/`, and deploys it to GitHub Pages.
-Relevant pushes to `main` publish automatically. Pull requests and package
-release runs only validate documentation; they do not replace the live site.
-The site follows `main` and does not keep separate documentation for each version.
+The release workflow builds documentation from the exact release commit and
+saves the validated Pages artifact for 90 days. After PyPI and GitHub release
+publication succeed, it calls `.github/workflows/deploy-pages.yml` to deploy that
+artifact. Failed or unapproved package releases do not update the website.
+Relevant pushes to `main` and pull requests validate documentation only.
+The site represents the most recently deployed release; it does not keep
+separate documentation sites for each version.
+
+**Publish Documentation** (`.github/workflows/pages.yml`) provides manual
+publication for redeployment or documentation-only corrections between releases.
 
 ### Initial GitHub Pages setup
 
@@ -262,11 +272,13 @@ The site follows `main` and does not keep separate documentation for each versio
    is not required for this Actions-based deployment.
 3. In **Settings → Environments**, create or open `github-pages`. Under
    **Deployment branches and tags**, choose **Selected branches and tags** and
-   add a **Branch** rule for `main`. Leave required reviewers unset for automatic
-   documentation updates. The `pypi` and `testpypi` environments are independent.
-4. Push the committed workflow and documentation changes to `main`. Open
-   **Actions → Publish Documentation** and wait for the build and deployment to
-   succeed before switching the existing hostname to the new host.
+   add a **Tag** rule matching `v*` for releases and a **Branch** rule for `main`
+   for manual deployments. Leave required reviewers unset for automatic
+   documentation deployment after release approval. The `pypi` and `testpypi` environments are independent.
+4. Push the committed workflow and documentation changes to `main`. This only
+   validates the site. For an initial deployment, manually publish an existing
+   release using the procedure below, or wait for a successful package release.
+   Keep any current live site until the first release-driven deployment succeeds.
 5. In the DNS zone for `salodev.no`, replace the existing record for `kinepet`
    with the CNAME below. Remove conflicting A or AAAA records for that same
    hostname; leave records for the rest of the domain unchanged.
@@ -287,7 +299,7 @@ The site follows `main` and does not keep separate documentation for each versio
 
    It should return `c-salomonsen.github.io.`. Open
    `https://kinepet.salodev.no/` and check the home page, model figure, navigation,
-   and a nested API page before creating the package release tag. Keep the old
+   and a nested API page after deployment. Keep the old
    host serving documentation until the DNS transition is complete.
 
 See [GitHub's custom-domain instructions](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site).
@@ -296,16 +308,29 @@ The workflow uses GitHub's built-in token and OIDC permissions. No additional
 API token, repository secret, or `gh-pages` branch is required. See
 [GitHub's Pages workflow guide](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
 
-To redeploy manually, select **Actions → Publish Documentation → Run workflow**
-and choose `main`, or run:
+### Manual publication and documentation corrections
+
+Select **Actions → Publish Documentation → Run workflow**, choose `main` for the
+workflow version, and supply the source release tag, branch, or commit to build.
+To redeploy `v0.4.2` after that release exists:
 
 ```bash
-gh workflow run pages.yml --repo c-salomonsen/KinePET --ref main
+gh workflow run pages.yml --repo c-salomonsen/KinePET --ref main -f source_ref=v0.4.2
 ```
 
-Use this only when an automatic deployment has not already started. Dispatching
-this workflow on another branch or a tag skips deployment. Running the separate
-**Documentation** workflow manually performs validation only.
+The workflow definition comes from `main`, but checkout and the documentation
+build use `source_ref`. There is no default source. Choose a released tag for
+ordinary redeployment. Running this manual workflow from a branch other than
+`main` skips publication. The separate **Documentation** workflow performs
+validation only.
+
+For corrections between releases, create a branch from the currently published
+release tag, apply only the necessary documentation changes, and push that
+branch. Then use its branch name or, preferably, exact commit as `source_ref`.
+Review the diff against the release tag before publication; avoid using ongoing
+`main` development as the source. Merge the correction into normal development
+as well so the next release retains it. Manual publication replaces the live
+site and does not publish a package or move the release tag.
 
 A future URL change requires coordinated updates to `site_url` in `mkdocs.yml`,
 package project URLs, README and citation links, and any old-host redirects.

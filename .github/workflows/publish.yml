@@ -40,6 +40,8 @@ jobs:
   docs:
     needs: release_metadata
     uses: ./.github/workflows/docs.yml
+    with:
+      upload_pages: true
 
   distributions:
     needs: release_metadata
@@ -200,3 +202,12 @@ jobs:
               });
             }
             await core.summary.addLink('Published release', release.html_url).write();
+
+  documentation:
+    name: Publish released documentation
+    needs: github_release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-pages.yml

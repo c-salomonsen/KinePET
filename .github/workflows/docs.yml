@@ -4,6 +4,16 @@
 name: Documentation
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/docs.yml"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/deploy-pages.yml"
   pull_request:
     paths:
       - "docs/**"
@@ -12,9 +22,14 @@ on:
       - "uv.lock"
       - ".github/workflows/docs.yml"
       - ".github/workflows/pages.yml"
+      - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
   workflow_call:
     inputs:
+      source_ref:
+        description: Source tag, branch, or commit; defaults to the triggering commit
+        type: string
+        default: ""
       upload_pages:
         description: Upload the built site for the Pages deployment workflow
         type: boolean
@@ -29,6 +44,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -40,3 +57,4 @@ jobs:
         uses: actions/upload-pages-artifact@v4
         with:
           path: site
+          retention-days: 90

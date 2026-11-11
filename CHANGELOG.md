@@ -2,8 +2,10 @@
 
 ## Unreleased
 
-- Deploy documentation from `main` to GitHub Pages while retaining the
-  `https://kinepet.salodev.no/` custom domain.
+- Deploy validated release documentation to GitHub Pages after successful PyPI
+  and GitHub release publication, retaining `https://kinepet.salodev.no/`.
+  Development pushes only validate documentation; manual publication requires
+  an explicit source ref.
 
 - Build Apple Silicon wheels on the supported `macos-15` runner, replacing the
   retired `macos-14` runner that prevented release publication.
