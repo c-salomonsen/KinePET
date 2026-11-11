@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Deploy documentation from `main` to GitHub Pages while retaining the
+  `https://kinepet.salodev.no/` custom domain.
+
 - Build Apple Silicon wheels on the supported `macos-15` runner, replacing the
   retired `macos-14` runner that prevented release publication.
 - Run one Linux/Python configuration on routine pushes and pull requests; build

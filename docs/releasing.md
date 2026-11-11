@@ -124,15 +124,17 @@ release metadata validation.
 | Trigger | Checks |
 | --- | --- |
 | Push to `main` or a pull request | One Linux job on Python 3.13: C++ tests, Python tests, and CLI/API parity |
-| Documentation, MkDocs configuration, dependency metadata, or documentation-workflow changes | Strict documentation build |
+| Documentation, MkDocs configuration, dependency metadata, or documentation-workflow changes | Strict documentation build; pushes to `main` also deploy to GitHub Pages |
 | Version tag | Python 3.11–3.13 tests, C++/CLI checks, documentation, source archive, and Linux/Windows/macOS wheels |
 | Manual **Tests** run | Full Python matrix by default; a single configuration can be selected |
 | Manual **Build Distributions** run | Source archive and all platform wheels, without publication |
 
 The release workflow calls the same test and build workflows used for manual
-checks. Ordinary pushes do not build distribution wheels. The separate
-**Documentation** workflow has path filters; do not make it a required branch
-protection check that must complete on every pull request.
+checks. Ordinary pushes do not build distribution wheels. The **Documentation**
+workflow validates pull requests and releases;
+**Publish Documentation** reuses that build and deploys changes from `main`.
+Both use path filters for ordinary changes; do not make them required branch
+protection checks that must complete on every pull request.
 
 If branch protection requires the previous Python or CLI job names, update it to
 require `Python and C++ tests (3.13)` after the new workflow has run.
@@ -242,6 +244,70 @@ packages. The next release tag uses the single-build procedure above.
 
 ## Documentation hosting
 
-The documentation URL is `https://kinepet.salodev.no/`. A hosting change requires
-coordinated updates to `site_url` in `mkdocs.yml`, `docs/CNAME`, project URLs, and
-redirects from the previous address.
+The documentation is hosted at
+[https://kinepet.salodev.no/](https://kinepet.salodev.no/).
+The **Publish Documentation** workflow (`.github/workflows/pages.yml`) calls the
+shared strict MkDocs build, uploads `site/`, and deploys it to GitHub Pages.
+Relevant pushes to `main` publish automatically. Pull requests and package
+release runs only validate documentation; they do not replace the live site.
+The site follows `main` and does not keep separate documentation for each version.
+
+### Initial GitHub Pages setup
+
+1. Open the repository's **Settings → Pages**. Under **Build and deployment**,
+   set **Source** to **GitHub Actions**. The repository already supplies the
+   workflow, so no generated workflow template is needed.
+2. Set **Custom domain** to `kinepet.salodev.no` and save it before changing DNS.
+   The domain is configured in GitHub's settings; a `CNAME` file in the repository
+   is not required for this Actions-based deployment.
+3. In **Settings → Environments**, create or open `github-pages`. Under
+   **Deployment branches and tags**, choose **Selected branches and tags** and
+   add a **Branch** rule for `main`. Leave required reviewers unset for automatic
+   documentation updates. The `pypi` and `testpypi` environments are independent.
+4. Push the committed workflow and documentation changes to `main`. Open
+   **Actions → Publish Documentation** and wait for the build and deployment to
+   succeed before switching the existing hostname to the new host.
+5. In the DNS zone for `salodev.no`, replace the existing record for `kinepet`
+   with the CNAME below. Remove conflicting A or AAAA records for that same
+   hostname; leave records for the rest of the domain unchanged.
+
+   | Type | Name / host | Target / value | TTL |
+   | --- | --- | --- | --- |
+   | CNAME | `kinepet` | `c-salomonsen.github.io` | 300 seconds or provider default |
+
+   The target is a hostname: omit `https://` and `/KinePET/`. If the DNS provider
+   offers a proxy, use DNS-only mode during setup.
+6. Wait for the DNS check and HTTPS certificate provisioning in **Settings →
+   Pages**, then enable **Enforce HTTPS** when available. DNS propagation and
+   certificate availability can take up to 24 hours. Check the CNAME with:
+
+   ```bash
+   dig +short CNAME kinepet.salodev.no
+   ```
+
+   It should return `c-salomonsen.github.io.`. Open
+   `https://kinepet.salodev.no/` and check the home page, model figure, navigation,
+   and a nested API page before creating the package release tag. Keep the old
+   host serving documentation until the DNS transition is complete.
+
+See [GitHub's custom-domain instructions](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site).
+
+The workflow uses GitHub's built-in token and OIDC permissions. No additional
+API token, repository secret, or `gh-pages` branch is required. See
+[GitHub's Pages workflow guide](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
+
+To redeploy manually, select **Actions → Publish Documentation → Run workflow**
+and choose `main`, or run:
+
+```bash
+gh workflow run pages.yml --repo c-salomonsen/KinePET --ref main
+```
+
+Use this only when an automatic deployment has not already started. Dispatching
+this workflow on another branch or a tag skips deployment. Running the separate
+**Documentation** workflow manually performs validation only.
+
+A future URL change requires coordinated updates to `site_url` in `mkdocs.yml`,
+package project URLs, README and citation links, and any old-host redirects.
+The custom domain serves documentation at `/`; do not add a `/KinePET/` prefix
+to `site_url` or public documentation links.

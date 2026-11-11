@@ -44,7 +44,10 @@ Serve locally:
 uv run mkdocs serve
 ```
 
-The site is configured for `https://kinepet.salodev.no/`.
+The site is configured for `https://kinepet.salodev.no/`. Relevant
+pushes to `main` deploy through **Publish Documentation**; pull requests and
+release tags only build the docs for validation. See
+[the hosting setup](releasing.md#documentation-hosting) for deployment instructions.
 
 ## Validation checklist
 
