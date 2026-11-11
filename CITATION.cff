@@ -3,8 +3,11 @@ message: "Please cite the version of KinePET used in your work, including its re
 type: software
 title: "KinePET: TAC-based fitting of dynamic PET two-tissue compartment models"
 authors:
-  - name: "KinePET contributors"
-    website: "https://github.com/c-salomonsen/KinePET/graphs/contributors"
+  - family-names: "Salomonsen"
+    given-names: "Christian"
+    orcid: "https://orcid.org/0009-0007-4958-4544"
+doi: 10.5281/zenodo.24132816
+date-released: 2026-11-11
 repository-code: "https://github.com/c-salomonsen/KinePET"
 url: "https://kinepet.salodev.no/"
 abstract: "A bounded nonlinear C++ solver with Python bindings for reversible and irreversible two-tissue compartment models, with linear least-squares initialization."
@@ -12,3 +15,7 @@ keywords:
   - PET
   - kinetic modeling
   - compartment models
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.24132816"
+    description: "The concept DOI for the collection containing all versions of the software."
