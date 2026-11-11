@@ -1,6 +1,11 @@
-[![DOI](https://zenodo.org/badge/1231964802.svg)](https://doi.org/10.5281/zenodo.24132815)
-
 # KinePET
+
+[![Release](https://img.shields.io/github/v/release/c-salomonsen/KinePET?logo=github)](https://github.com/c-salomonsen/KinePET/releases)
+[![Changelog](https://img.shields.io/badge/changelog-view-blue?logo=keepachangelog&logoColor=white)](https://github.com/c-salomonsen/KinePET/blob/main/changelog.md)
+[![Tests](https://github.com/c-salomonsen/KinePET/actions/workflows/tests.yml/badge.svg)](https://github.com/c-salomonsen/KinePET/actions/workflows/tests.yml)
+[![Documentation](https://img.shields.io/badge/docs-online-blue?logo=readthedocs&logoColor=white)](https://kinepet.salodev.no/)
+[![License](https://img.shields.io/github/license/c-salomonsen/KinePET)](https://github.com/c-salomonsen/KinePET?tab=AGPL-3.0-1-ov-file)
+[![DOI](https://zenodo.org/badge/1231964802.svg)](https://doi.org/10.5281/zenodo.24132815)
 
 KinePET fits dynamic PET time–activity curves (TACs) with reversible and
 irreversible two-tissue compartment models. A C++ bounded nonlinear solver uses
@@ -10,10 +15,6 @@ Python or the standalone `tcm_fit_tacs` CLI.
 Blood fraction can be fitted, fixed to a known value, or omitted by fixing it to
 zero. Delay and dispersion correction are optional. Image preprocessing and
 reconstruction of parameter maps belong in the calling application.
-
-[Documentation](https://kinepet.salodev.no/) ·
-[Issues](https://github.com/c-salomonsen/KinePET/issues) ·
-[Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
 ## Installation
 
