@@ -27,10 +27,11 @@ nav:
       - Helpers: python-api/helpers.md
   - Data Format: data-format.md
   - CLI: cli.md
-  - Architecture: architecture.md
-  - Development: development.md
   - Validation and Reproducibility: reproducibility.md
-  - Releasing: releasing.md
+  - Contributing and maintenance:
+      - Architecture: architecture.md
+      - Development: development.md
+      - Releasing: releasing.md
 
 markdown_extensions:
   - admonition

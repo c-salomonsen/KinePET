@@ -15,6 +15,11 @@
 
 ### Changed
 
+- Move paper-specific comparison scripts and tests, standalone simulations,
+  and the synthetic benchmark to the companion validation repository. Library
+  numerical tests, CLI parity checks, and wheel validation remain in KinePET.
+- Group contributor and maintenance documentation separately from user guides.
+
 - C++ models carry their blood-fraction setting explicitly; optional AIF settings
   are grouped rather than passed as repeated boolean/value arguments.
 - Model-specific LLS regressions and kinetic parameter recovery have separate,
@@ -39,14 +44,9 @@ also rejects a numeric `vB` that conflicts with the model's `FixedVB`.
   in the shared C++ path. Preserve per-TAC invalid status 5 in batch outputs;
   guard objective, derivative, and linear-step overflow against false convergence.
 - Fix in-place AIF transformation for negative delays and dispersion.
-- Repair comparison export status codes, require explicit source time units,
-  remove the local VOI path, isolate optional reference packages, verify downloaded
-  PyPET code by SHA-256, and add common native-grid RMSE without changing original
-  method metrics.
-- Add numerical input regressions, independent compartment ODE checks, a synthetic
-  comparison-export smoke test, and a reproducible synthetic benchmark.
+- Add numerical input regressions and independent compartment ODE checks.
 - Resolve public development dependencies without a private index. Prepare
   Trusted Publishing with release metadata/license gates and numerical wheel tests.
 - Add dependency notices, contribution guidance, citation metadata, scientific
-  conventions, paper provenance, and release instructions.
+  conventions, validation scope, and release instructions.
 - Add AGPL-3.0-only licensing and SPDX notices to project source and build files.

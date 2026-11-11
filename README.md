@@ -117,12 +117,11 @@ shapes and units as the Python API. Supply weights through `--weights-file`.
 The CLI writes per-TAC `.npy` outputs and `run.txt`; weighted cost is currently
 Python-only. See [CLI options and filenames](docs/cli.md).
 
-## Validation and benchmarking
+## Validation
 
 ```bash
 uv run pytest -q
 ctest --test-dir build --output-on-failure
-uv run python scripts/benchmark.py --num-tacs 128 --repeats 3 --threads 1
 ```
 
 The tests cover LLS recovery, independent ODE checks, invalid inputs, typed and
@@ -130,12 +129,11 @@ legacy API calls, and CLI/API parity. Rebuild the extension after C++ edits with
 `uv sync --group dev --reinstall-package kinepet`. CLI tests require the built
 executable, or `KINEPET_CLI` pointing to it.
 
-The synthetic benchmark writes throughput, native-grid errors, failure counts,
-settings, and environment information. It measures consistency and local
-performance on generated TACs. See
-[reproducibility](docs/reproducibility.md) for validation scope, analysis provenance,
-and optional PyPET/LLS comparison exports. External error metrics must be
-converted to a common metric before comparing methods.
+Paper-specific comparisons, analysis notebooks, and the previous simulation
+scripts are maintained separately in `kinepet-paper-validation`. The library
+retains numerical regression tests and installed-package checks. See
+[validation and reproducibility](docs/reproducibility.md) for their scope and
+for the information needed to identify the software used in an analysis.
 
 ## Code organization
 

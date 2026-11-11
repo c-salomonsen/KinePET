@@ -75,36 +75,6 @@ jobs:
       - name: Check CLI and Python parity across model configurations
         run: uv run --python 3.11 python -m pytest -q tests/test_cli.py
 
-      - name: Generate synthetic TAC batch
-        run: uv run --python 3.11 python scripts/make_synthetic_dataset.py "$RUNNER_TEMP/kinepet-input" --model rev --num-tacs 8
-
-      - name: Run CLI fit
-        run: ./build/tcm_fit_tacs --input-dir "$RUNNER_TEMP/kinepet-input" --output-dir "$RUNNER_TEMP/kinepet-output" --model rev --threads 1 --max-iter 80
-
-      - name: Verify CLI outputs
-        env:
-          FIT_OUTPUT: ${{ runner.temp }}/kinepet-output
-        run: |
-          uv run --python 3.11 python - <<'PY'
-          import os
-          from pathlib import Path
-
-          import numpy as np
-
-          output = Path(os.environ["FIT_OUTPUT"])
-          for name in ("K1", "k2", "k3", "k4", "vB", "Ki", "rmse"):
-              values = np.load(output / f"{name}.npy")
-              assert values.shape == (8,), name
-              assert np.all(np.isfinite(values)), name
-
-          iterations = np.load(output / "iterations.npy")
-          status = np.load(output / "status.npy")
-          assert iterations.shape == (8,)
-          assert status.shape == (8,)
-          assert np.all(status != 5)
-          assert (output / "run.txt").is_file()
-          PY
-
   docs:
     name: Documentation
     runs-on: ubuntu-latest
