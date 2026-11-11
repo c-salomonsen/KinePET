@@ -1,23 +1,34 @@
 # Changelog
 
-## Unreleased
+## 0.4.2 (2026-11-11)
 
-- Deploy validated release documentation to GitHub Pages after successful PyPI
-  and GitHub release publication, retaining `https://kinepet.salodev.no/`.
-  Development pushes only validate documentation; manual publication requires
-  an explicit source ref.
+This release updates packaging, release automation, and documentation hosting.
+The fitting algorithms and public model API are unchanged from 0.4.1.
 
-- Build Apple Silicon wheels on the supported `macos-15` runner, replacing the
-  retired `macos-14` runner that prevented release publication.
-- Run one Linux/Python configuration on routine pushes and pull requests; build
-  documentation when its sources or build configuration change.
-- Reserve the full Python test matrix and platform distribution builds for
-  release tags and manual runs.
-- Build release artifacts once, publish to TestPyPI for review, then promote the
-  same files to PyPI after environment approval. Prepare draft GitHub release
-  notes from the changelog and publish the release after the PyPI upload.
+### Changed
 
-## 0.4.1 (unreleased)
+- Build distributions once, upload them to TestPyPI for review, then publish the
+  same files to official PyPI after approval through the `pypi` environment.
+  Saved artifact IDs and SHA-256 checksums preserve the files between uploads.
+- Generate draft GitHub release notes from the matching changelog entry and
+  publish the release after the PyPI upload succeeds.
+- Deploy the validated release documentation to GitHub Pages after successful
+  PyPI and GitHub release publication, retaining `https://kinepet.salodev.no/`.
+  Development pushes validate documentation without updating the live site;
+  manual publication requires an explicit source tag, branch, or commit.
+- Run one Linux/Python configuration for routine pushes and pull requests.
+  Reserve the full supported Python test matrix and platform distribution builds
+  for release tags and manual runs.
+- Document Trusted Publishing setup, release review and recovery, and GitHub
+  Pages configuration. Update citation metadata and add the Zenodo DOI badge.
+
+### Fixed
+
+- Replace the retired `macos-14` runner with `macos-15` and explicitly build
+  Apple Silicon (`arm64`) wheels. The unavailable runner previously prevented
+  the distribution workflow from reaching publication.
+
+## 0.4.1 (2026-11-11)
 
 ### Added
 
