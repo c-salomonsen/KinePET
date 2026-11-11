@@ -6,7 +6,8 @@ authors:
   - family-names: "Salomonsen"
     given-names: "Christian"
     orcid: "https://orcid.org/0009-0007-4958-4544"
-doi: 10.5281/zenodo.24132816
+version: "0.4.2"
+doi: 10.5281/zenodo.24138639
 date-released: 2026-11-11
 repository-code: "https://github.com/c-salomonsen/KinePET"
 url: "https://kinepet.salodev.no/"
@@ -17,5 +18,8 @@ keywords:
   - compartment models
 identifiers:
   - type: doi
-    value: "10.5281/zenodo.24132816"
-    description: "The concept DOI for the collection containing all versions of the software."
+    value: "10.5281/zenodo.24138639"
+    description: "Archived snapshot of KinePET version 0.4.2."
+  - type: doi
+    value: "10.5281/zenodo.24132815"
+    description: "Concept DOI identifying KinePET across all versions; use the primary DOI above to cite version 0.4.2."
